@@ -1,0 +1,6 @@
+session Hermite_Harness = Hermite +
+  options [timeout = 600]
+  sessions
+    Python
+  theories
+    Hermite_Harness

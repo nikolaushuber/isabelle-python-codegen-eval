@@ -25,6 +25,7 @@ session is up to date. To rebuild a single one: `isabelle build -d . -c Splay_Ha
 | `leftist_heap/` | `HOL-Data_Structures.Leftist_Heap` | `heapq` |
 | `rbt_map/` | `HOL-Data_Structures.RBT_Map` | `sortedcontainers.SortedDict` |
 | `binomial_heap/` | `HOL-Data_Structures.Binomial_Heap` | `heapq` |
+| `hermite/` | AFP `Hermite` (Hermite normal form) | `sympy` `hermite_normal_form` |
 
 ## Layout
 
@@ -34,3 +35,10 @@ One folder per data structure, e.g. `splay_tree/`:
 - `test_*.py`: differential tests against the generated module
 
 To add a data structure, create a new folder in the same way and list it in `ROOTS`.
+
+## Testing libraries against verified references
+
+Most folders validate the code generator: a mismatch points at the generated code. In
+`hermite/` the direction is reversed: the verified algorithm is the reference and SymPy is
+the library under test. The first build of `Hermite_Harness` also builds its AFP ancestors
+(HOL-Analysis, Gauss_Jordan, Echelon_Form, Hermite), which takes several minutes.
