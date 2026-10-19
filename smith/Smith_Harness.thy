@@ -1,6 +1,7 @@
 theory Smith_Harness
   imports
     Smith_Normal_Form.SNF_Algorithm_Euclidean_Domain
+    Jordan_Normal_Form.Matrix_IArray_Impl
     "HOL-Library.Code_Target_Int"
     "Python.Python_Setup"
 begin
@@ -12,6 +13,11 @@ text \<open>
   @{text "S = P * A * Q"}, @{text P} and @{text Q} invertible and @{text S} in Smith normal form
   (diagonal, each diagonal entry dividing the next). Over @{typ int} the diagonal is unique only
   up to sign.
+
+  @{theory Jordan_Normal_Form.Matrix_IArray_Impl} switches matrices from functions to arrays.
+  Without it, every matrix product nests closures and recomputes earlier products on each entry
+  access, so a 3 x 3 matrix takes minutes (in Isabelle's own SML evaluation too) instead of
+  milliseconds.
 \<close>
 
 definition snf :: "nat \<Rightarrow> int list list \<Rightarrow> int list list \<times> int list list \<times> int list list" where

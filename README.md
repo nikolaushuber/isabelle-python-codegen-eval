@@ -49,8 +49,8 @@ The verified references are slow, which limits the inputs:
 
 - `hermite/`: about 0.1 s per 5 x 5 matrix, so 200 examples per test by default
   (`HNF_EXAMPLES`, `HNF_MAX_DIM`).
-- `smith/`: the algorithm works on HOL-Analysis vectors, which the code generator represents as
-  functions, so every matrix product nests closures. The cost grows about 13x per row or column
-  beyond 2 (a 3 x 3 matrix takes minutes, in Isabelle's own SML evaluation too), so only
-  1 x n, n x 1 (n <= 5), 2 x 2, 2 x 3 and 3 x 2 matrices are tested (`SNF_EXAMPLES`,
-  `SNF_MEDIUM_EXAMPLES`).
+- `smith/`: about 0.1 s per 5 x 5 matrix, so 200 examples per test by default
+  (`SNF_EXAMPLES`, `SNF_MAX_DIM`). This relies on importing
+  `Jordan_Normal_Form.Matrix_IArray_Impl` in the harness: by default the code generator
+  represents matrices as functions, every matrix product then nests closures, and a 3 x 3 matrix
+  takes minutes.

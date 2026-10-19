@@ -11,10 +11,8 @@ Checked for SymPy:
   smith_normal_decomp                    returns (S, s, t) with S = s * A * t, det s, det t = +-1
 Checked for the reference itself (cheap, independent of SymPy): S = P * A * Q, det P, det Q = +-1.
 
-Limitation: the reference works on HOL-Analysis vectors, which the code generator represents as
-functions, so every matrix product nests closures and recomputes all earlier products. Its cost
-grows about 13x per row or column beyond 2, so only 1 x n, n x 1 (n <= 5), 2 x 2, 2 x 3 and
-3 x 2 matrices are tested. That leaves SymPy's recursion on the lower-right block mostly untested.
+The reference takes about 0.1 s for a 5 x 5 matrix and 2 s for 8 x 8 (with array-backed matrices,
+see Smith_Harness.thy), so shapes go up to SNF_MAX_DIM = 5 by default.
 """
 import importlib
 import os
@@ -28,25 +26,15 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.environ.get("SNF_GEN_PATH", os.path.join(HERE, "generated")))
 gen = importlib.import_module(os.environ.get("SNF_GEN_MODULE", "Smith_Ref"))
 
-# The reference gets roughly 13x slower per extra row or column beyond 2 (a 3 x 3 matrix takes
-# minutes, in Isabelle's own SML evaluation too), so only small shapes are feasible:
-FAST_SHAPES = [(1, n) for n in range(1, 5)] + [(m, 1) for m in range(2, 5)] + [(2, 2)]   # <= 10 ms
-MEDIUM_SHAPES = [(2, 3), (3, 2), (1, 5), (5, 1)]                                          # 0.1 - 2 s
+MAX_DIM = int(os.environ.get("SNF_MAX_DIM", "5"))
 
 settings.register_profile(
     "snf",
-    max_examples=int(os.environ.get("SNF_EXAMPLES", "300")),
-    deadline=None,
-    suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
-)
-settings.register_profile(
-    "snf_medium",
-    max_examples=int(os.environ.get("SNF_MEDIUM_EXAMPLES", "10")),
+    max_examples=int(os.environ.get("SNF_EXAMPLES", "200")),
     deadline=None,
     suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
 )
 PROFILE = settings.get_profile("snf")
-MEDIUM = settings.get_profile("snf_medium")
 
 
 def reference(a):
@@ -124,13 +112,9 @@ def diagonal_like(draw, shape):
     return [list(r) for r in a]
 
 
-def matrices(shapes):
-    return st.sampled_from(shapes).flatmap(
-        lambda sh: st.one_of(dense(sh), low_rank(sh), with_repeats(sh), diagonal_like(sh)))
-
-
-MATRICES = matrices(FAST_SHAPES)
-MEDIUM_MATRICES = matrices(MEDIUM_SHAPES)
+SHAPES = st.tuples(st.integers(1, MAX_DIM), st.integers(1, MAX_DIM))
+MATRICES = SHAPES.flatmap(
+    lambda sh: st.one_of(dense(sh), low_rank(sh), with_repeats(sh), diagonal_like(sh)))
 
 
 # ---- tests ----
@@ -174,24 +158,13 @@ def test_snf_decomposition_is_valid(a):
     assert unimodular(s) and unimodular(t)
 
 
-@MEDIUM
-@given(MEDIUM_MATRICES)
-def test_medium_shapes(a):
-    """The same checks on the larger shapes the reference can still afford, with few examples."""
-    _, s_ref, _ = reference(a)
-    expected = [abs(x) for x in diagonal(s_ref)]
-    assert diagonal(smith_normal_form(Matrix(a), domain=ZZ)) == expected
-    snf, s, t = smith_normal_decomp(Matrix(a), domain=ZZ)
-    assert diagonal(snf) == expected
-    assert s * Matrix(a) * t == snf
-    assert unimodular(s) and unimodular(t)
-
-
 def test_examples():
-    """SymPy's docstring example is 3 x 3, which takes the reference minutes; check it against
-    SymPy alone, and a 2 x 2 example against both."""
-    assert diagonal(smith_normal_form(Matrix([[12, 6, 4], [3, 9, 6], [2, 16, 14]]), domain=ZZ)) == [1, 10, 30]
-    a = [[4, 0], [0, 6]]                       # diag(4, 6) ~ diag(2, 12)
+    """SymPy's docstring example, and diag(4, 6) ~ diag(2, 12)."""
+    a = [[12, 6, 4], [3, 9, 6], [2, 16, 14]]
+    _, s, _ = reference(a)
+    assert [abs(x) for x in diagonal(s)] == [1, 10, 30]
+    assert diagonal(smith_normal_form(Matrix(a), domain=ZZ)) == [1, 10, 30]
+    a = [[4, 0], [0, 6]]
     _, s, _ = reference(a)
     assert [abs(x) for x in diagonal(s)] == [2, 12]
     assert diagonal(smith_normal_form(Matrix(a), domain=ZZ)) == [2, 12]
