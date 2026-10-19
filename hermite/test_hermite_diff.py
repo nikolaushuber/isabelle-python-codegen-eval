@@ -34,7 +34,7 @@ MAX_DIM = int(os.environ.get("HNF_MAX_DIM", "5"))
 
 settings.register_profile(
     "hnf",
-    max_examples=int(os.environ.get("HNF_EXAMPLES", "200")),
+    max_examples=int(os.environ.get("HNF_EXAMPLES", "2000")),
     deadline=None,
     suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
 )

@@ -26,6 +26,7 @@ session is up to date. To rebuild a single one: `isabelle build -d . -c Splay_Ha
 | `rbt_map/` | `HOL-Data_Structures.RBT_Map` | `sortedcontainers.SortedDict` |
 | `binomial_heap/` | `HOL-Data_Structures.Binomial_Heap` | `heapq` |
 | `hermite/` | AFP `Hermite` (Hermite normal form) | `sympy` `hermite_normal_form` |
+| `smith/` | AFP `Smith_Normal_Form` (Smith normal form) | `sympy` `smith_normal_form`, `smith_normal_decomp` |
 
 ## Layout
 
@@ -39,6 +40,17 @@ To add a data structure, create a new folder in the same way and list it in `ROO
 ## Testing libraries against verified references
 
 Most folders validate the code generator: a mismatch points at the generated code. In
-`hermite/` the direction is reversed: the verified algorithm is the reference and SymPy is
-the library under test. The first build of `Hermite_Harness` also builds its AFP ancestors
-(HOL-Analysis, Gauss_Jordan, Echelon_Form, Hermite), which takes several minutes.
+`hermite/` and `smith/` the direction is reversed: the verified algorithm is the reference and
+SymPy is the library under test. The first build of these harnesses also builds their AFP
+ancestors (HOL-Analysis, Gauss_Jordan, Echelon_Form, Hermite, and for `smith/` also
+Berlekamp_Zassenhaus and Smith_Normal_Form), which takes several minutes.
+
+The verified references are slow, which limits the inputs:
+
+- `hermite/`: about 0.1 s per 5 x 5 matrix, so 200 examples per test by default
+  (`HNF_EXAMPLES`, `HNF_MAX_DIM`).
+- `smith/`: the algorithm works on HOL-Analysis vectors, which the code generator represents as
+  functions, so every matrix product nests closures. The cost grows about 13x per row or column
+  beyond 2 (a 3 x 3 matrix takes minutes, in Isabelle's own SML evaluation too), so only
+  1 x n, n x 1 (n <= 5), 2 x 2, 2 x 3 and 3 x 2 matrices are tested (`SNF_EXAMPLES`,
+  `SNF_MEDIUM_EXAMPLES`).
