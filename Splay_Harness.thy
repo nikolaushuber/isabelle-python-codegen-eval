@@ -20,6 +20,16 @@ text \<open>
 declare Splay_Tree.splay_max_code [code]
 declare Splay_Map.splay_code [code]
 
+text \<open>
+  Native encoding of @{typ "int option"} for this harness only: @{const None} becomes Python
+  @{text None} and @{term "Some x"} becomes @{text x}. Sound here because the exported code only
+  constructs options and never matches on them, and @{typ int} has no @{text None} value.
+\<close>
+code_printing
+    type_constructor option \<rightharpoonup> (Python) "_ option"
+  | constant None \<rightharpoonup> (Python) "None"
+  | constant Some \<rightharpoonup> (Python) "_"
+
 definition m_empty :: "(int \<times> int) tree" where
   "m_empty = \<langle>\<rangle>"
 
