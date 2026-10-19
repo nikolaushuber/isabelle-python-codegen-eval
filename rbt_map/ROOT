@@ -1,0 +1,7 @@
+session RBT_Map_Harness = "HOL-Library" +
+  options [timeout = 600]
+  sessions
+    "HOL-Data_Structures"
+    Python
+  theories
+    RBT_Map_Harness
