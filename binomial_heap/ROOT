@@ -1,0 +1,7 @@
+session Binomial_Heap_Harness = "HOL-Library" +
+  options [timeout = 600]
+  sessions
+    "HOL-Data_Structures"
+    Python
+  theories
+    Binomial_Heap_Harness

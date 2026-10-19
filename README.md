@@ -24,6 +24,7 @@ session is up to date. To rebuild a single one: `isabelle build -d . -c Splay_Ha
 | `splay_tree/` | AFP `Splay_Tree.Splay_Map` | `sortedcontainers.SortedDict` |
 | `leftist_heap/` | `HOL-Data_Structures.Leftist_Heap` | `heapq` |
 | `rbt_map/` | `HOL-Data_Structures.RBT_Map` | `sortedcontainers.SortedDict` |
+| `binomial_heap/` | `HOL-Data_Structures.Binomial_Heap` | `heapq` |
 
 ## Layout
 
