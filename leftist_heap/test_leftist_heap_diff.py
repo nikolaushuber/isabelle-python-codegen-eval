@@ -149,8 +149,9 @@ def test_large_drain(order):
 @pytest.mark.parametrize("order", ["ascending", "descending"])
 def test_large_elems(order):
     """
-    h_elems is inorder, built with a recursive append, so it recurses once per element.
-    Records whether the generated Python hits the interpreter recursion limit
+    h_elems is inorder, which concatenates with Python's native list `+`, so it recurses
+    as deep as the tree. Leftist heaps only bound the right spine: ascending inserts give
+    a shallow tree, but descending inserts build a left spine of depth n. Records whether the generated Python hits the interpreter recursion limit
     (reported as xfail, not as a mismatch).
     """
     n = int(os.environ.get("LHEAP_LARGE_N", "3000"))

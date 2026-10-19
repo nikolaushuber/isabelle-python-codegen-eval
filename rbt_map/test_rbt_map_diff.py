@@ -156,9 +156,10 @@ def test_large_sequential(order):
 @pytest.mark.parametrize("order", ["ascending", "descending"])
 def test_large_items(order):
     """
-    r_items is inorder, built with a recursive append, so it recurses once per element
-    even though the tree is balanced. Records whether the generated Python hits the
-    interpreter recursion limit (reported as xfail, not as a mismatch).
+    r_items is inorder, which concatenates with Python's native list `+`, so it only
+    recurses as deep as the tree, which stays O(log n) because the tree is balanced.
+    Records whether the generated Python hits the interpreter recursion limit
+    (reported as xfail, not as a mismatch).
     """
     n = int(os.environ.get("RBT_LARGE_N", "3000"))
     sys.setrecursionlimit(int(os.environ.get("RBT_RECURSION_LIMIT", "1000")))
