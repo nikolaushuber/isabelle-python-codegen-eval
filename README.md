@@ -12,12 +12,17 @@ established Python libraries using Hypothesis.
 ## Usage
 
 ```bash
-isabelle build -d . -c Splay_Harness   # regenerate splay_tree/generated/Splay_Ref.py
-uv run pytest -v                       # run all tests
+isabelle build -c -D .   # regenerate */generated/ for every data structure
+uv run pytest -v         # run all tests
 ```
 
 `-c` forces a rebuild, so the generated code is rewritten even when the
-session is up to date.
+session is up to date. To rebuild a single one: `isabelle build -d . -c Splay_Harness`.
+
+| Folder | Isabelle source | Compared against |
+|---|---|---|
+| `splay_tree/` | AFP `Splay_Tree.Splay_Map` | `sortedcontainers.SortedDict` |
+| `leftist_heap/` | `HOL-Data_Structures.Leftist_Heap` | `heapq` |
 
 ## Layout
 
