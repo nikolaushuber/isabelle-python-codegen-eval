@@ -9,3 +9,7 @@ dependencies = [
     "pytest>=9.1.1",
     "sortedcontainers>=2.4.0",
 ]
+
+[tool.pytest.ini_options]
+# One folder per data structure; importlib mode lets test files in different folders share a name.
+addopts = "--import-mode=importlib"
