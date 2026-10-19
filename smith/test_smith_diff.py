@@ -28,6 +28,10 @@ gen = importlib.import_module(os.environ.get("SNF_GEN_MODULE", "Smith_Ref"))
 
 MAX_DIM = int(os.environ.get("SNF_MAX_DIM", "5"))
 
+# The reference's transforms P and Q can reach thousands of digits on wide 6 x 6 inputs, and its
+# extended Euclidean algorithm (euclid_ext_aux) recurses once per division step.
+sys.setrecursionlimit(max(sys.getrecursionlimit(), int(os.environ.get("SNF_RECURSION_LIMIT", "100000"))))
+
 settings.register_profile(
     "snf",
     max_examples=int(os.environ.get("SNF_EXAMPLES", "200")),
