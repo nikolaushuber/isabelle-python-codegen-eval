@@ -14,3 +14,8 @@ dependencies = [
 [tool.pytest.ini_options]
 # One folder per data structure; importlib mode lets test files in different folders share a name.
 addopts = "--import-mode=importlib"
+
+[dependency-groups]
+dev = [
+    "matplotlib>=3.11.2",
+]

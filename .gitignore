@@ -11,3 +11,5 @@ wheels/
 
 # Isabelle generated files
 generated/
+# Benchmark output
+bench/out/

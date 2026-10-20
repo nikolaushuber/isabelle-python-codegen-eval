@@ -54,3 +54,23 @@ The verified references are slow, which limits the inputs:
   `Jordan_Normal_Form.Matrix_IArray_Impl` in the harness: by default the code generator
   represents matrices as functions, every matrix product then nests closures, and a 3 x 3 matrix
   takes minutes.
+
+## Benchmarks
+
+`bench/run.py` times the generated references against the libraries they are tested against,
+on the same workloads (map: insert, look up, delete half, list items; heap: build, drain;
+matrices: one random n x n integer matrix). It checks that both sides agree and records medians
+in `bench/out/results.json`. `bench/plot.py` turns that file into `bench/out/benchmark.png`,
+including the slowdown of each reference at the largest size both sides completed; `run.py`
+calls it at the end unless given `--no-plot`.
+
+```bash
+uv run python bench/run.py            # all sizes (a few minutes)
+uv run python bench/run.py --quick    # smaller sizes
+uv run python bench/run.py --only rbt_map smith
+uv run python bench/plot.py          # re-plot bench/out/results.json
+```
+
+The generated code runs with Python's default recursion limit, so a failure there (e.g. deep
+recursion over a long list) shows up as a cross in the plot, and larger sizes are skipped.
+

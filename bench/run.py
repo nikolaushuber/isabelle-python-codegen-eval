@@ -1,0 +1,264 @@
+"""
+Benchmark: Isabelle-generated reference implementations vs the Python libraries they are tested
+against, over a range of input sizes.
+
+Each benchmark runs the same workload on both sides, checks that the results agree, and records
+the median wall-clock time. A side that fails (e.g. RecursionError in the generated code, which
+does not eliminate tail calls) is recorded as failed for that size and is not run on larger sizes.
+A side whose median exceeds the time budget is not run on larger sizes either.
+
+Run from the repository root, after `isabelle build -c -D .`:
+
+    uv run python bench/run.py                 # all benchmarks, writes bench/out/
+    uv run python bench/run.py --quick         # smaller sizes
+    uv run python bench/run.py --only rbt_map hermite
+    uv run python bench/run.py --no-plot       # only write bench/out/results.json
+
+Plotting lives in bench/plot.py, which run.py calls at the end; run it on its own to re-plot.
+"""
+import argparse
+import heapq
+import importlib
+import json
+import os
+import random
+import statistics
+import sys
+import time
+from dataclasses import dataclass
+from typing import Any, Callable
+
+from plot import plot
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUT = os.path.join(ROOT, "bench", "out")
+
+
+def load(folder, module):
+    sys.path.insert(0, os.path.join(ROOT, folder, "generated"))
+    return importlib.import_module(module)
+
+
+# ---- workloads ----
+# Each benchmark: make(n, rng) -> input; ref(input) and lib(input) -> comparable results.
+
+
+@dataclass
+class Bench:
+    name: str
+    label: str            # what one unit of size means, for the x axis
+    sizes: list
+    quick_sizes: list
+    make: Callable[[int, random.Random], Any]
+    ref: Callable[[Any], Any]
+    lib: Callable[[Any], Any]
+    lib_name: str
+
+
+def map_workload(keys):
+    """Insert all keys, look all up, delete every other one, list the items."""
+    return keys, keys[::2]
+
+
+def make_map_input(n, rng):
+    keys = list(range(n))
+    rng.shuffle(keys)
+    return keys
+
+
+def map_ref(empty, update, lookup, delete, items):
+    def run(keys):
+        t = empty
+        for k in keys:
+            t = update(k, -k, t)
+        found = [lookup(t, k) for k in keys]
+        for k in keys[::2]:
+            t = delete(k, t)
+        return found, list(items(t))
+    return run
+
+
+def map_lib(keys):
+    from sortedcontainers import SortedDict
+    d = SortedDict()
+    for k in keys:
+        d[k] = -k
+    found = [d.get(k) for k in keys]
+    for k in keys[::2]:
+        del d[k]
+    return found, list(d.items())
+
+
+def make_heap_input(n, rng):
+    return [rng.randint(-10**6, 10**6) for _ in range(n)]
+
+
+def heap_ref(gen):
+    def run(xs):
+        t = gen.h_empty
+        for x in xs:
+            t = gen.h_insert(x, t)
+        out = []
+        while (m := gen.h_get_min(t)) is not None:
+            out.append(m)
+            t = gen.h_del_min(t)
+        return out
+    return run
+
+
+def heap_lib(xs):
+    h = []
+    for x in xs:
+        heapq.heappush(h, x)
+    return [heapq.heappop(h) for _ in range(len(h))]
+
+
+def make_matrix(n, rng):
+    return [[rng.randint(-10, 10) for _ in range(n)] for _ in range(n)]
+
+
+def rot180(m):
+    return [row[::-1] for row in m[::-1]]
+
+
+def transpose(m):
+    return [list(c) for c in zip(*m)]
+
+
+def hnf_ref(gen):
+    def run(a):
+        # SymPy convention (see hermite/test_hermite_diff.py)
+        au = transpose(rot180(gen.hnf_rows(rot180(transpose(a)))))
+        cols = [c for c in transpose(au) if any(c)]
+        return transpose(cols) if cols else [[] for _ in a]
+    return run
+
+
+def hnf_lib(a):
+    from sympy import Matrix
+    from sympy.matrices.normalforms import hermite_normal_form
+    h = hermite_normal_form(Matrix(a))
+    return [[int(x) for x in h.row(i)] for i in range(h.rows)] if h.cols else [[] for _ in a]
+
+
+def snf_ref(gen):
+    def run(a):
+        _, (s, _) = gen.snf(len(a[0]), a)
+        return [abs(s[i][i]) for i in range(min(len(s), len(s[0])))]
+    return run
+
+
+def snf_lib(a):
+    from sympy import Matrix, ZZ
+    from sympy.matrices.normalforms import smith_normal_form
+    s = smith_normal_form(Matrix(a), domain=ZZ)
+    return [int(s[i, i]) for i in range(min(s.rows, s.cols))]
+
+
+def benchmarks():
+    splay = load("splay_tree", "Splay_Ref")
+    rbt = load("rbt_map", "RBT_Map_Ref")
+    lheap = load("leftist_heap", "Leftist_Heap_Ref")
+    bheap = load("binomial_heap", "Binomial_Heap_Ref")
+    herm = load("hermite", "Hermite_Ref")
+    smith = load("smith", "Smith_Ref")
+    elems = [100, 300, 1000, 3000, 10000, 30000]
+    quick_elems = [100, 300, 1000, 3000]
+    dims = [1, 2, 3, 4, 5, 6, 7, 8]
+    quick_dims = [1, 2, 3, 4, 5]
+    return [
+        Bench("splay_tree", "keys", elems, quick_elems, make_map_input,
+              map_ref(splay.m_empty, splay.m_update, splay.m_lookup, splay.m_delete, splay.m_items),
+              map_lib, "SortedDict"),
+        Bench("rbt_map", "keys", elems, quick_elems, make_map_input,
+              map_ref(rbt.r_empty, rbt.r_update, rbt.r_lookup, rbt.r_delete, rbt.r_items),
+              map_lib, "SortedDict"),
+        Bench("leftist_heap", "elements", elems, quick_elems, make_heap_input,
+              heap_ref(lheap), heap_lib, "heapq"),
+        Bench("binomial_heap", "elements", elems, quick_elems, make_heap_input,
+              heap_ref(bheap), heap_lib, "heapq"),
+        Bench("hermite", "n (n x n matrix)", dims, quick_dims, make_matrix,
+              hnf_ref(herm), hnf_lib, "sympy HNF"),
+        Bench("smith", "n (n x n matrix)", dims, quick_dims, make_matrix,
+              snf_ref(smith), snf_lib, "sympy SNF"),
+    ]
+
+
+# ---- timing ----
+
+def time_side(fn, arg, min_total, max_repeats):
+    """Median of repeated runs: at least one run, more until min_total seconds or max_repeats."""
+    times, result = [], None
+    while True:
+        t0 = time.perf_counter()
+        result = fn(arg)
+        times.append(time.perf_counter() - t0)
+        if len(times) >= max_repeats or sum(times) >= min_total:
+            return statistics.median(times), len(times), result
+
+
+def run_bench(b, sizes, budget, min_total, max_repeats, seed):
+    rows = []
+    stopped = {"reference": None, "library": None}
+    for n in sizes:
+        arg = b.make(n, random.Random(f"{seed}-{b.name}-{n}"))
+        results = {}
+        for side, fn in (("reference", b.ref), ("library", b.lib)):
+            if stopped[side]:
+                rows.append({"size": n, "side": side, "status": "skipped", "reason": stopped[side]})
+                continue
+            try:
+                median, repeats, result = time_side(fn, arg, min_total, max_repeats)
+            except RecursionError:
+                stopped[side] = "recursion limit"
+                rows.append({"size": n, "side": side, "status": "failed", "reason": "recursion limit"})
+                continue
+            results[side] = result
+            rows.append({"size": n, "side": side, "status": "ok", "seconds": median, "repeats": repeats})
+            if median > budget:
+                stopped[side] = f"over {budget:g} s budget"
+        if len(results) == 2 and results["reference"] != results["library"]:
+            raise AssertionError(f"{b.name} n={n}: reference and library disagree")
+        line = "  ".join(
+            f"{r['side']}={r['seconds'] * 1000:9.2f} ms" if r["status"] == "ok" else f"{r['side']}={r['status']:>12}"
+            for r in rows if r["size"] == n)
+        print(f"{b.name:14} {n:>6}  {line}", flush=True)
+    return rows
+
+
+# ---- main ----
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--only", nargs="+", help="benchmark names to run")
+    p.add_argument("--quick", action="store_true", help="smaller sizes")
+    p.add_argument("--budget", type=float, default=5.0,
+                   help="stop growing a side once its median exceeds this many seconds (default 5)")
+    p.add_argument("--min-total", type=float, default=0.2,
+                   help="repeat each measurement until this many seconds (default 0.2)")
+    p.add_argument("--max-repeats", type=int, default=7)
+    p.add_argument("--seed", default="0")
+    p.add_argument("--out", default=OUT)
+    p.add_argument("--no-plot", action="store_true", help="do not plot (see bench/plot.py)")
+    args = p.parse_args()
+
+    os.makedirs(args.out, exist_ok=True)
+    json_path = os.path.join(args.out, "results.json")
+    results = {"python": sys.version.split()[0], "recursion_limit": sys.getrecursionlimit(),
+               "benchmarks": []}
+    for b in benchmarks():
+        if args.only and b.name not in args.only:
+            continue
+        rows = run_bench(b, b.quick_sizes if args.quick else b.sizes, args.budget,
+                         args.min_total, args.max_repeats, args.seed)
+        results["benchmarks"].append({"name": b.name, "label": b.label, "lib_name": b.lib_name,
+                                      "rows": rows})
+    with open(json_path, "w") as f:
+        json.dump(results, f, indent=1)
+    print(f"wrote {json_path}")
+    if not args.no_plot:
+        plot(results, os.path.join(args.out, "benchmark.png"))
+
+
+if __name__ == "__main__":
+    main()
