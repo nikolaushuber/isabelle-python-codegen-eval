@@ -8,13 +8,17 @@ established Python libraries using Hypothesis.
 
 - Isabelle2025-2 with the `isabelle-python-codegen` and AFP components registered
 - [uv](https://docs.astral.sh/uv/)
+- optional: PyPy, which `make pypy-env` installs through uv into `.venv-pypy`
 
 ## Usage
 
 ```bash
-isabelle build -c -D .   # regenerate */generated/ for every data structure
-uv run pytest -v         # run all tests
+make build       # isabelle build -c -D .: regenerate */generated/ for every data structure
+make test        # run all tests (CPython, .venv)
+make test-pypy   # the same under PyPy (.venv-pypy, created on first use)
 ```
+
+Without make: `isabelle build -c -D .` and `uv run pytest -v`.
 
 `-c` forces a rebuild, so the generated code is rewritten even when the
 session is up to date. To rebuild a single one: `isabelle build -d . -c Splay_Harness`.
@@ -80,17 +84,24 @@ transparently as well fails in the backend ("Unknown statement name").
 `bench/run.py` times the generated references against the libraries they are tested against,
 on the same workloads (map: insert, look up, delete half, list items; heap: build, drain;
 matrices: one random n x n integer matrix). It checks that both sides agree and records medians
-in `bench/out/results.json`. `bench/plot.py` turns that file into `bench/out/benchmark.png`,
-including the slowdown of each reference at the largest size both sides completed; `run.py`
-calls it at the end unless given `--no-plot`.
+in `bench/out/<interpreter>/results.json`, so CPython and PyPy runs sit side by side. Each
+measurement starts with untimed warm-up runs (0.3 s by default, `--warmup`), which PyPy's JIT
+needs. `bench/plot.py` combines all results into `bench/out/benchmark.png`: time against size per
+benchmark and interpreter, and the slowdown of each reference against its library.
 
 ```bash
-uv run python bench/run.py            # all sizes (a few minutes)
-uv run python bench/run.py --quick    # smaller sizes
-uv run python bench/run.py --only rbt_map smith
-uv run python bench/plot.py          # re-plot bench/out/results.json
+make bench-all                             # CPython, then PyPy, then the plot
+make bench                                 # CPython only
+make bench-pypy                            # PyPy only
+make plot                                  # re-plot everything in bench/out/*/
+make bench BENCH_ARGS="--quick --only rbt_map smith"
 ```
 
-The generated code runs with Python's default recursion limit, so a failure there (e.g. deep
-recursion over a long list) shows up as a cross in the plot, and larger sizes are skipped.
+Both environments share `uv.lock`; PyPy (3.11) is why `requires-python` is `>=3.11`, and its
+environment leaves out the dev group (matplotlib), so plotting always runs under CPython. SymPy and
+the other libraries run under the same interpreter as the references.
 
+The generated code runs with the interpreter's default recursion limit, so a failure there (e.g.
+deep recursion over a long list) shows up as a cross in the plot, and larger sizes are skipped.
+PyPy counts recursion depth differently: the three tests that xfail on CPython because of the limit
+pass under PyPy.

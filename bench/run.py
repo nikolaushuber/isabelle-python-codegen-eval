@@ -7,20 +7,22 @@ the median wall-clock time. A side that fails (e.g. RecursionError in the genera
 does not eliminate tail calls) is recorded as failed for that size and is not run on larger sizes.
 A side whose median exceeds the time budget is not run on larger sizes either.
 
-Run from the repository root, after `isabelle build -c -D .`:
+Results go to bench/out/<interpreter>/results.json (cpython or pypy), so runs under different
+interpreters sit side by side; bench/plot.py compares them. The Makefile wraps both
+environments (`make bench`, `make bench-pypy`, `make plot`). Directly, from the repository root
+after `isabelle build -c -D .`:
 
-    uv run python bench/run.py                 # all benchmarks, writes bench/out/
+    uv run python bench/run.py                 # all benchmarks
     uv run python bench/run.py --quick         # smaller sizes
     uv run python bench/run.py --only rbt_map hermite
-    uv run python bench/run.py --no-plot       # only write bench/out/results.json
-
-Plotting lives in bench/plot.py, which run.py calls at the end; run it on its own to re-plot.
+    UV_PROJECT_ENVIRONMENT=.venv-pypy uv run --python pypy@3.11 --no-dev python bench/run.py
 """
 import argparse
 import heapq
 import importlib
 import json
 import os
+import platform
 import random
 import statistics
 import sys
@@ -28,10 +30,14 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from plot import plot
+# imported up front, so that no measurement includes an import
+from sortedcontainers import SortedDict
+from sympy import Matrix, ZZ
+from sympy.matrices.normalforms import hermite_normal_form, smith_normal_form
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "bench", "out")
+INTERPRETER = platform.python_implementation().lower()        # "cpython" or "pypy"
 
 
 def load(folder, module):
@@ -79,7 +85,6 @@ def map_ref(empty, update, lookup, delete, items):
 
 
 def map_lib(keys):
-    from sortedcontainers import SortedDict
     d = SortedDict()
     for k in keys:
         d[k] = -k
@@ -135,8 +140,6 @@ def hnf_ref(gen):
 
 
 def hnf_lib(a):
-    from sympy import Matrix
-    from sympy.matrices.normalforms import hermite_normal_form
     h = hermite_normal_form(Matrix(a))
     return [[int(x) for x in h.row(i)] for i in range(h.rows)] if h.cols else [[] for _ in a]
 
@@ -149,8 +152,6 @@ def snf_ref(gen):
 
 
 def snf_lib(a):
-    from sympy import Matrix, ZZ
-    from sympy.matrices.normalforms import smith_normal_form
     s = smith_normal_form(Matrix(a), domain=ZZ)
     return [int(s[i, i]) for i in range(min(s.rows, s.cols))]
 
@@ -186,9 +187,26 @@ def benchmarks():
 
 # ---- timing ----
 
-def time_side(fn, arg, min_total, max_repeats):
-    """Median of repeated runs: at least one run, more until min_total seconds or max_repeats."""
-    times, result = [], None
+KEEP_WARMUP = 1.0      # seconds: a warm-up run this slow counts as a sample instead
+
+
+def time_side(fn, arg, min_total, max_repeats, warmup):
+    """
+    Median of repeated runs, after untimed warm-up runs for `warmup` seconds (PyPy's JIT needs
+    several runs to compile the hot loops, and warming up keeps one-time costs out). Then at
+    least one more run, more until min_total seconds or max_repeats.
+    """
+    spent = 0.0
+    while True:
+        t0 = time.perf_counter()
+        result = fn(arg)
+        last = time.perf_counter() - t0
+        if last >= KEEP_WARMUP:
+            return last, 1, result
+        spent += last
+        if spent >= warmup:
+            break
+    times = []
     while True:
         t0 = time.perf_counter()
         result = fn(arg)
@@ -197,7 +215,7 @@ def time_side(fn, arg, min_total, max_repeats):
             return statistics.median(times), len(times), result
 
 
-def run_bench(b, sizes, budget, min_total, max_repeats, seed):
+def run_bench(b, sizes, budget, min_total, max_repeats, warmup, seed):
     rows = []
     stopped = {"reference": None, "library": None}
     for n in sizes:
@@ -208,7 +226,7 @@ def run_bench(b, sizes, budget, min_total, max_repeats, seed):
                 rows.append({"size": n, "side": side, "status": "skipped", "reason": stopped[side]})
                 continue
             try:
-                median, repeats, result = time_side(fn, arg, min_total, max_repeats)
+                median, repeats, result = time_side(fn, arg, min_total, max_repeats, warmup)
             except RecursionError:
                 stopped[side] = "recursion limit"
                 rows.append({"size": n, "side": side, "status": "failed", "reason": "recursion limit"})
@@ -237,27 +255,30 @@ def main():
     p.add_argument("--min-total", type=float, default=0.2,
                    help="repeat each measurement until this many seconds (default 0.2)")
     p.add_argument("--max-repeats", type=int, default=7)
+    p.add_argument("--warmup", type=float, default=0.3,
+                   help="untimed warm-up runs for this many seconds before each measurement (default 0.3)")
     p.add_argument("--seed", default="0")
-    p.add_argument("--out", default=OUT)
-    p.add_argument("--no-plot", action="store_true", help="do not plot (see bench/plot.py)")
+    p.add_argument("--out", help=f"output directory (default bench/out/{INTERPRETER})")
     args = p.parse_args()
 
-    os.makedirs(args.out, exist_ok=True)
-    json_path = os.path.join(args.out, "results.json")
-    results = {"python": sys.version.split()[0], "recursion_limit": sys.getrecursionlimit(),
-               "benchmarks": []}
+    out = args.out or os.path.join(OUT, INTERPRETER)
+    os.makedirs(out, exist_ok=True)
+    json_path = os.path.join(out, "results.json")
+    results = {"interpreter": INTERPRETER, "python": sys.version.split()[0],
+               "implementation_version": platform.python_version() if INTERPRETER == "cpython"
+               else ".".join(map(str, sys.pypy_version_info[:3])),
+               "recursion_limit": sys.getrecursionlimit(), "benchmarks": []}
+    print(f"{INTERPRETER} {results['implementation_version']} (Python {results['python']})", flush=True)
     for b in benchmarks():
         if args.only and b.name not in args.only:
             continue
         rows = run_bench(b, b.quick_sizes if args.quick else b.sizes, args.budget,
-                         args.min_total, args.max_repeats, args.seed)
+                         args.min_total, args.max_repeats, args.warmup, args.seed)
         results["benchmarks"].append({"name": b.name, "label": b.label, "lib_name": b.lib_name,
                                       "rows": rows})
     with open(json_path, "w") as f:
         json.dump(results, f, indent=1)
     print(f"wrote {json_path}")
-    if not args.no_plot:
-        plot(results, os.path.join(args.out, "benchmark.png"))
 
 
 if __name__ == "__main__":
