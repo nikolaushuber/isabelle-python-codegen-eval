@@ -39,9 +39,9 @@ bench-pypy: pypy-env
 
 bench-all: bench bench-pypy plot
 
-# compares every bench/out/*/results.json in bench/out/benchmark.png (matplotlib: CPython only)
+# compares every bench/out/*/results.json in bench/out/benchmark.png and .pdf (matplotlib: CPython only)
 plot:
 	$(CPYTHON_RUN) python bench/plot.py
 
 clean-bench:
-	rm -rf bench/out/cpython bench/out/pypy bench/out/benchmark.png
+	rm -rf bench/out/cpython bench/out/pypy bench/out/benchmark.png bench/out/benchmark.pdf

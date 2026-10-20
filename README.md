@@ -85,8 +85,8 @@ transparently as well fails in the backend ("Unknown statement name").
 on the same workloads (map: insert, look up, delete half, list items; heap: build, drain;
 matrices: one random n x n integer matrix). It checks that both sides agree and records medians
 in `bench/out/<interpreter>/results.json`, so CPython and PyPy runs sit side by side. Each
-measurement starts with untimed warm-up runs (0.3 s by default, `--warmup`), which PyPy's JIT
-needs. `bench/plot.py` combines all results into `bench/out/benchmark.png`: time against size per
+measurement starts with untimed warm-up runs (1 s by default, `--warmup`), which PyPy's JIT
+needs. `bench/plot.py` combines all results into `bench/out/benchmark.png` (and `.pdf`): time against size per
 benchmark and interpreter, and the slowdown of each reference against its library.
 
 ```bash
