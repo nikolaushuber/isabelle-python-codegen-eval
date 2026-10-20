@@ -29,8 +29,9 @@ gen = importlib.import_module(os.environ.get("SNF_GEN_MODULE", "Smith_Ref"))
 MAX_DIM = int(os.environ.get("SNF_MAX_DIM", "5"))
 
 # The reference's transforms P and Q can reach thousands of digits on wide 6 x 6 inputs, and its
-# extended Euclidean algorithm (euclid_ext_aux) recurses once per division step.
-sys.setrecursionlimit(max(sys.getrecursionlimit(), int(os.environ.get("SNF_RECURSION_LIMIT", "100000"))))
+# extended Euclidean algorithm (euclid_ext_aux) recurses once per division step. Hypothesis sets
+# its own recursion limit around each test body, so the limit is raised around the call itself.
+RECURSION_LIMIT = int(os.environ.get("SNF_RECURSION_LIMIT", "100000"))
 
 settings.register_profile(
     "snf",
@@ -43,7 +44,12 @@ PROFILE = settings.get_profile("snf")
 
 def reference(a):
     """(P, S, Q) from the verified algorithm, as lists of rows."""
-    p, (s, q) = gen.snf(len(a[0]), a)
+    old_limit = sys.getrecursionlimit()
+    sys.setrecursionlimit(max(old_limit, RECURSION_LIMIT))
+    try:
+        p, (s, q) = gen.snf(len(a[0]), a)
+    finally:
+        sys.setrecursionlimit(old_limit)
     return p, s, q
 
 
