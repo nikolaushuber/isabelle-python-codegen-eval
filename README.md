@@ -49,11 +49,31 @@ The verified references are slow, which limits the inputs:
 
 - `hermite/`: about 0.1 s per 5 x 5 matrix, so 200 examples per test by default
   (`HNF_EXAMPLES`, `HNF_MAX_DIM`).
-- `smith/`: about 0.1 s per 5 x 5 matrix, so 200 examples per test by default
+- `smith/`: about 75 ms per 5 x 5 matrix, so 200 examples per test by default
   (`SNF_EXAMPLES`, `SNF_MAX_DIM`). This relies on importing
   `Jordan_Normal_Form.Matrix_IArray_Impl` in the harness: by default the code generator
   represents matrices as functions, every matrix product then nests closures, and a 3 x 3 matrix
-  takes minutes.
+  takes minutes. Importing `Python.Python_IArray` as well makes the arrays native Python tuples.
+
+### Native printings: measured gains on `smith/`
+
+To see how much native printings help, they were added one at a time on top of the Smith
+reference, each step exported as its own module. All variants returned identical `(P, S, Q)`
+on 300 random matrices; times are medians on the benchmark's n x n matrices:
+
+| Step (cumulative) | 5 x 5 | 8 x 8 | calls at 5 x 5 |
+|---|---|---|---|
+| baseline | 99 ms | 2005 ms | 1,445,120 |
+| + `Python.Python_IArray` (tuples, native indexing) | 74 ms | 1379 ms | 965,455 |
+| + `upt` as `list(range(i, j))` | 73 ms | 1366 ms | 967,678 |
+| + `foldr`/`foldl` as `functools.reduce` | 71 ms | 1293 ms | 914,372 |
+| + JNF's `vec_impl`/`mat_impl` as transparent wrappers | 63 ms | 1075 ms | 901,073 |
+
+Only the first step is kept in the harness: it is already part of the backend. Together the
+steps gain about 1.6x at 5 x 5 and 1.9x at 8 x 8; the remaining ~900k calls are matrix element
+access, scalar products and type-class dictionary lookups, which native printings of library
+functions do not remove. Printing JNF's typedef morphisms (`Abs_mat_impl`, `Rep_mat_impl`)
+transparently as well fails in the backend ("Unknown statement name").
 
 ## Benchmarks
 

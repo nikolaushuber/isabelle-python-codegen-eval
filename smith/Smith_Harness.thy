@@ -4,6 +4,7 @@ theory Smith_Harness
     Jordan_Normal_Form.Matrix_IArray_Impl
     "HOL-Library.Code_Target_Int"
     "Python.Python_Setup"
+    "Python.Python_IArray"
 begin
 
 text \<open>
@@ -17,7 +18,8 @@ text \<open>
   @{theory Jordan_Normal_Form.Matrix_IArray_Impl} switches matrices from functions to arrays.
   Without it, every matrix product nests closures and recomputes earlier products on each entry
   access, so a 3 x 3 matrix takes minutes (in Isabelle's own SML evaluation too) instead of
-  milliseconds.
+  milliseconds. @{theory Python.Python_IArray} then prints those arrays as Python tuples with
+  native indexing, which makes the reference about 1.4x faster on 5 x 5 matrices.
 \<close>
 
 definition snf :: "nat \<Rightarrow> int list list \<Rightarrow> int list list \<times> int list list \<times> int list list" where
