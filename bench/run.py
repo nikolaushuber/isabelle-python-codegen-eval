@@ -3,7 +3,8 @@ Benchmark: Isabelle-generated reference implementations vs the Python libraries 
 against, over a range of input sizes.
 
 Each benchmark runs the same workload on both sides, checks that the results agree, and records
-the median wall-clock time, plus the fastest and slowest repeat. A side that fails (e.g. RecursionError in the generated code, which
+the median wall-clock time, the interquartile range, the fastest and slowest repeat, and every
+timed run. A side that fails (e.g. RecursionError in the generated code, which
 does not eliminate tail calls) is recorded as failed for that size and is not run on larger sizes.
 A side whose median exceeds the time budget is not run on larger sizes either.
 
@@ -187,35 +188,22 @@ def benchmarks():
 
 # ---- timing ----
 
-KEEP_WARMUP = 1.0      # seconds: a warm-up run this slow counts as a sample instead
-
-
-def time_side(fn, arg, min_total, max_repeats, warmup):
+def time_side(fn, arg, repeats, warmup):
     """
-    Median, min and max of repeated runs, after untimed warm-up runs for `warmup` seconds (PyPy's JIT needs
-    several runs to compile the hot loops, and warming up keeps one-time costs out). Then at
-    least one more run, more until min_total seconds or max_repeats.
+    `warmup` untimed runs (PyPy's JIT needs several runs to compile the hot loops, and warming up
+    keeps one-time costs out), then `repeats` timed runs.
     """
-    spent = 0.0
-    while True:
-        t0 = time.perf_counter()
-        result = fn(arg)
-        last = time.perf_counter() - t0
-        if last >= KEEP_WARMUP:
-            return [last], result
-        spent += last
-        if spent >= warmup:
-            break
+    for _ in range(warmup):
+        fn(arg)
     times = []
-    while True:
+    for _ in range(repeats):
         t0 = time.perf_counter()
         result = fn(arg)
         times.append(time.perf_counter() - t0)
-        if len(times) >= max_repeats or sum(times) >= min_total:
-            return times, result
+    return times, result
 
 
-def run_bench(b, sizes, budget, min_total, max_repeats, warmup, seed):
+def run_bench(b, sizes, budget, repeats, warmup, seed):
     rows = []
     stopped = {"reference": None, "library": None}
     for n in sizes:
@@ -226,15 +214,18 @@ def run_bench(b, sizes, budget, min_total, max_repeats, warmup, seed):
                 rows.append({"size": n, "side": side, "status": "skipped", "reason": stopped[side]})
                 continue
             try:
-                times, result = time_side(fn, arg, min_total, max_repeats, warmup)
+                times, result = time_side(fn, arg, repeats, warmup)
             except RecursionError:
                 stopped[side] = "recursion limit"
                 rows.append({"size": n, "side": side, "status": "failed", "reason": "recursion limit"})
                 continue
             results[side] = result
             median = statistics.median(times)
+            q1, _, q3 = statistics.quantiles(times, n=4)
             rows.append({"size": n, "side": side, "status": "ok", "seconds": median,
-                         "min_seconds": min(times), "max_seconds": max(times), "repeats": len(times)})
+                         "q1_seconds": q1, "q3_seconds": q3,
+                         "min_seconds": min(times), "max_seconds": max(times), "repeats": len(times),
+                         "times": times})
             if median > budget:
                 stopped[side] = f"over {budget:g} s budget"
         if len(results) == 2 and results["reference"] != results["library"]:
@@ -254,11 +245,10 @@ def main():
     p.add_argument("--quick", action="store_true", help="smaller sizes")
     p.add_argument("--budget", type=float, default=5.0,
                    help="stop growing a side once its median exceeds this many seconds (default 5)")
-    p.add_argument("--min-total", type=float, default=0.5,
-                   help="repeat each measurement until this many seconds (default 0.5)")
-    p.add_argument("--max-repeats", type=int, default=15)
-    p.add_argument("--warmup", type=float, default=1.0,
-                   help="untimed warm-up runs for this many seconds before each measurement (default 1)")
+    p.add_argument("--repeats", type=int, default=15,
+                   help="timed runs per measurement (default 15)")
+    p.add_argument("--warmup", type=int, default=10,
+                   help="untimed warm-up runs before each measurement (default 10)")
     p.add_argument("--seed", default="0")
     p.add_argument("--out", help=f"output directory (default bench/out/{INTERPRETER})")
     args = p.parse_args()
@@ -275,7 +265,7 @@ def main():
         if args.only and b.name not in args.only:
             continue
         rows = run_bench(b, b.quick_sizes if args.quick else b.sizes, args.budget,
-                         args.min_total, args.max_repeats, args.warmup, args.seed)
+                         args.repeats, args.warmup, args.seed)
         results["benchmarks"].append({"name": b.name, "label": b.label, "lib_name": b.lib_name,
                                       "rows": rows})
     with open(json_path, "w") as f:

@@ -85,8 +85,8 @@ transparently as well fails in the backend ("Unknown statement name").
 on the same workloads (map: insert, look up, delete half, list items; heap: build, drain;
 matrices: one random n x n integer matrix). It checks that both sides agree and records medians
 in `bench/out/<interpreter>/results.json`, so CPython and PyPy runs sit side by side. Each
-measurement starts with untimed warm-up runs (1 s by default, `--warmup`), which PyPy's JIT
-needs. `bench/plot.py` combines all results into `bench/out/benchmark.png` (and `.pdf`): time against size per
+measurement is the median of 15 timed runs (`--repeats`) after 10 untimed warm-up runs
+(`--warmup`), which PyPy's JIT needs. `bench/plot.py` combines all results into `bench/out/benchmark.png` (and `.pdf`): time against size per
 benchmark and interpreter, and the slowdown of each reference against its library.
 
 ```bash
@@ -95,7 +95,13 @@ make bench                                 # CPython only
 make bench-pypy                            # PyPy only
 make plot                                  # re-plot everything in bench/out/*/
 make bench BENCH_ARGS="--quick --only rbt_map smith"
+make calls                                 # function calls, also as LaTeX (calls.tex)
 ```
+
+`bench/calls.py` (`make calls`) profiles one run of each workload with cProfile and counts function
+calls for both sides: Python-level calls, calls into C, and objects built from HOL datatypes
+(dataclass `__init__`). Results go to `bench/out/cpython/calls.json`; `--latex` (on by default with `make calls`)
+also writes them as a booktabs tabular to `calls.tex`.
 
 Both environments share `uv.lock`; PyPy (3.11) is why `requires-python` is `>=3.11`, and its
 environment leaves out the dev group (matplotlib), so plotting always runs under CPython. SymPy and

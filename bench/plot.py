@@ -3,7 +3,7 @@ Plot the results of bench/run.py for one or more interpreters (CPython, PyPy):
 
 - one panel per benchmark: time against size; colour and marker = interpreter (CPython dots,
   PyPy squares), line type = side (solid = verified reference, dashed = library), shaded band =
-  fastest to slowest repeat; failures are marked with a cross
+  interquartile range of the timed runs; failures are marked with a cross
 - the slowdown of each reference against its library, per interpreter, at the largest size both
   sides completed
 
@@ -44,9 +44,9 @@ def times(bench, side):
 
 
 def spread(bench, side):
-    """size -> (fastest, slowest) repeat for one side, where run.py recorded them."""
-    return {r["size"]: (r["min_seconds"], r["max_seconds"]) for r in bench["rows"]
-            if r["side"] == side and r["status"] == "ok" and "min_seconds" in r}
+    """size -> (25th, 75th percentile) of the timed runs for one side, where run.py recorded them."""
+    return {r["size"]: (r["q1_seconds"], r["q3_seconds"]) for r in bench["rows"]
+            if r["side"] == side and r["status"] == "ok" and "q1_seconds" in r}
 
 
 def ratio_label(v):
@@ -151,7 +151,7 @@ def plot(all_results, path):
                         linewidth=1.4)
                 band = spread(b, side)
                 bx = [x for x in xs if x in band]
-                if bx:   # fastest to slowest repeat
+                if bx:   # interquartile range
                     ax.fill_between(bx, [band[x][0] for x in bx], [band[x][1] for x in bx],
                                     color=color, alpha=0.15, linewidth=0)
                 for r in failed:
@@ -197,7 +197,7 @@ def plot(all_results, path):
                for env, color, marker, _ in envs]
     # the band swatch is split into one part per interpreter colour
     handles.append(tuple(Patch(color=color, alpha=0.15, linewidth=0) for _, color, _, _ in envs))
-    labels = [env for env, *_ in envs] + ["fastest to slowest repeat"]
+    labels = [env for env, *_ in envs] + ["interquartile range"]
     fig.legend(handles, labels, handler_map={tuple: HandlerTuple(ndivide=None, pad=0)},
                frameon=False, fontsize=9, ncol=len(handles),
                loc="upper right", bbox_to_anchor=(0.995, 0.997), borderaxespad=0)
