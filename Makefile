@@ -45,7 +45,7 @@ bench-all: bench bench-pypy plot
 plot:
 	$(CPYTHON_RUN) python bench/plot.py
 
-# function calls per benchmark, reference vs library (cProfile, CPython):
+# function calls per benchmark, reference vs library (sys.setprofile hook, CPython):
 # bench/out/cpython/calls.json and calls.tex (LaTeX tabular)
 calls:
 	$(CPYTHON_RUN) python bench/calls.py --latex $(CALLS_ARGS)

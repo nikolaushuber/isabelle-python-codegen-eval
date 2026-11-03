@@ -1,13 +1,13 @@
 """
-Count function calls: the same workloads as bench/run.py, profiled once with cProfile, for the
-generated reference and the library side by side. Counts are split into Python-level calls,
+Count function calls: the same workloads as bench/run.py, counted once with a sys.setprofile hook,
+for the generated reference and the library side by side. Counts are split into Python-level calls,
 calls into C (builtins and C extension modules such as _heapq), and the dataclass-generated
 __init__ calls, i.e. objects built from a HOL datatype. A call into C counts once, however much
 work it does there.
 
-Each side runs once untimed first (warming caches such as SymPy's), then once under the profiler.
+Each side runs once untimed first (warming caches such as SymPy's), then once under the hook.
 The table rounds the counts (e.g. 129k); the exact counts go to bench/out/<interpreter>/calls.json.
-Meant for CPython; under PyPy the profiler disables most of the JIT.
+Meant for CPython; under PyPy the profile hook disables most of the JIT.
 
     uv run python bench/calls.py                     # 1000 keys / elements, 5 x 5 matrices
     uv run python bench/calls.py --elements 10000 --matrix-n 8
@@ -15,7 +15,6 @@ Meant for CPython; under PyPy the profiler disables most of the JIT.
     uv run python bench/calls.py --latex             # also bench/out/cpython/calls.tex
 """
 import argparse
-import cProfile
 import json
 import os
 import random
@@ -28,24 +27,27 @@ import run  # noqa: E402  (the workloads and generated modules of the benchmark)
 def count(fn, arg):
     """(total, python, c, dataclass inits) calls for one run of fn(arg)."""
     fn(arg)
-    prof = cProfile.Profile()
-    prof.enable()
-    fn(arg)
-    prof.disable()
-    # the raw entries, one per code object: pstats keys them by (file, line, name), under which
-    # the generated __init__ of every dataclass looks the same and only one would survive
-    total = python = c = inits = 0
-    for entry in prof.getstats():
-        calls = entry.callcount
-        total += calls
-        if isinstance(entry.code, str):   # builtins and C extensions
-            c += calls
-        else:
-            python += calls
+    # count the profiler events directly (the hook cProfile uses): pstats keys its stats by
+    # (file, line, name), under which the generated __init__ of every dataclass looks the same
+    # and only one would survive
+    c = {"python": 0, "c": 0, "dataclass_inits": 0}
+
+    def hook(frame, event, _):
+        if event == "call":
+            c["python"] += 1
+            code = frame.f_code
             # dataclasses compile __init__ from a string, so it has no real source file
-            if entry.code.co_name == "__init__" and entry.code.co_filename.startswith("<"):
-                inits += calls
-    return {"total": total, "python": python, "c": c, "dataclass_inits": inits}
+            if code.co_name == "__init__" and code.co_filename.startswith("<"):
+                c["dataclass_inits"] += 1
+        elif event == "c_call":           # builtins and C extensions
+            c["c"] += 1
+
+    sys.setprofile(hook)
+    try:
+        fn(arg)
+    finally:
+        sys.setprofile(None)
+    return {"total": c["python"] + c["c"], **c}
 
 
 def short(n):

@@ -98,7 +98,7 @@ make bench BENCH_ARGS="--quick --only rbt_map smith"
 make calls                                 # function calls, also as LaTeX (calls.tex)
 ```
 
-`bench/calls.py` (`make calls`) profiles one run of each workload with cProfile and counts function
+`bench/calls.py` (`make calls`) runs each workload once under a `sys.setprofile` hook and counts function
 calls for both sides: Python-level calls, calls into C, and objects built from HOL datatypes
 (dataclass `__init__`). Results go to `bench/out/cpython/calls.json`; `--latex` (on by default with `make calls`)
 also writes them as a booktabs tabular to `calls.tex`.
