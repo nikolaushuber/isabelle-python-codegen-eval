@@ -6,6 +6,8 @@ Plot the results of bench/run.py for one or more interpreters (CPython, PyPy):
   interquartile range of the timed runs; failures are marked with a cross
 - the slowdown of each reference against its library, per interpreter, at the largest size both
   sides completed
+- where bench/caching.py has results for an interpreter (bench/out/caching/<interpreter>/no_cache/),
+  the reference built without caching: grey dotted line, with that interpreter's marker
 
     uv run python bench/plot.py                         # every bench/out/*/results.json
     uv run python bench/plot.py bench/out/pypy/results.json -o pypy.png
@@ -26,6 +28,12 @@ INK, INK_2, INK_3, GRID, SURFACE = "#0b0b0b", "#52514e", "#8a8984", "#e4e3df", "
 # line type per side
 SIDES = (("reference", "-"), ("library", "--"))
 ORDER = {"cpython": 0, "pypy": 1}
+# Legend layout, in points, shared by the title-line legend and the slowdown panel's legend: every
+# handle box is as wide as its marker (or its line or swatch), and ends LABEL_GAP_PT before its label
+MARKER_PT = 40 ** 0.5     # diameter of the slowdown panel's scatter markers (s=40 is an area in pt^2)
+LABEL_GAP_PT = 5
+LINE_HANDLE_PT = 24       # length of the swatch and dotted-line handles
+GROUP_GAP_PT = 30         # between the interpreters and the range / no-caching entries
 # matrix panels start here: a 1x1 matrix takes ~10 us, mostly call overhead and noise
 MIN_MATRIX_N = 2
 
@@ -105,15 +113,18 @@ def dot_panel(ax, rows, groups, title, xlabel, notes=None):
     ax.set_xlabel(xlabel)
     if len(groups) > 1:   # above the panel, on the title line: dots can sit anywhere inside
         ax.legend(frameon=False, fontsize=8, loc="lower right", bbox_to_anchor=(1, 1),
+                  handlelength=MARKER_PT / 8, handletextpad=LABEL_GAP_PT / 8, scatterpoints=1,
                   ncol=len(groups), borderaxespad=0.2)
 
 
-def plot(all_results, path):
+def plot(all_results, path, results_nc=None):
+    """results_nc: id(results) -> the no-cache results of the same interpreter, where there are any."""
+    results_nc = results_nc or {}
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from matplotlib.lines import Line2D
-    from matplotlib.legend_handler import HandlerTuple
+    from matplotlib.legend_handler import HandlerBase, HandlerTuple
     from matplotlib.patches import Patch
 
     plt.rcParams.update({
@@ -137,11 +148,19 @@ def plot(all_results, path):
     for i, name in enumerate(names):
         ax = fig.add_subplot(grid[i // cols, i % cols])
         lib_name, label = None, None
-        for (env, color, marker, _), benches in zip(envs, by_env):
+        for (env, color, marker, _r), benches in zip(envs, by_env):
             b = benches.get(name)
             if b is None:
                 continue
             lib_name, label = b["lib_name"], b["label"]
+            # the reference without caching (bench/caching.py), for comparison
+            nc = {b["name"]: b for b in results_nc.get(id(_r), {}).get("benchmarks", [])}.get(name)
+            if nc is not None:
+                ok, _ = times(nc, "reference")
+                matrix = nc["label"].startswith("n (")
+                xs = sorted(x for x in ok if not (matrix and x < MIN_MATRIX_N))
+                ax.plot(xs, [ok[x] for x in xs], color=INK_3, linestyle=":", marker=marker,
+                        markersize=4, linewidth=1.4, markerfacecolor="none", zorder=1)
             for side, style in SIDES:
                 ok, failed = times(b, side)
                 matrix = b["label"].startswith("n (")
@@ -192,15 +211,48 @@ def plot(all_results, path):
 
     fig.suptitle("Generated verified references vs Python libraries",
                  x=0.01, ha="left", fontsize=12, fontweight="bold", color=INK)
-    # one legend for every panel, at the right end of the title line: interpreters and the band
-    handles = [Line2D([], [], color=color, linestyle="none", marker=marker, label=env)
-               for env, color, marker, _ in envs]
+    # the legend of every panel, on the title line: interpreters, then (after a wider gap) the band
+    # and the references without caching. Two legends, so the gap between the groups can differ.
+    fs = 9
+    interp_handles = [Line2D([], [], color=color, linestyle="none", marker=marker, markersize=MARKER_PT)
+                      for _, color, marker, _ in envs]
+    interp_labels = [env for env, *_ in envs]
     # the band swatch is split into one part per interpreter colour
-    handles.append(tuple(Patch(color=color, alpha=0.15, linewidth=0) for _, color, _, _ in envs))
-    labels = [env for env, *_ in envs] + ["interquartile range"]
-    fig.legend(handles, labels, handler_map={tuple: HandlerTuple(ndivide=None, pad=0)},
-               frameon=False, fontsize=9, ncol=len(handles),
-               loc="upper right", bbox_to_anchor=(0.995, 0.997), borderaxespad=0)
+    other_handles = [tuple(Patch(color=color, alpha=0.15, linewidth=0) for _, color, _, _ in envs)]
+    other_labels = ["interquartile range"]
+    handler_map = {tuple: HandlerTuple(ndivide=None, pad=0)}
+    if results_nc:
+        # one grey dotted line carrying the open marker of every interpreter that has no-cache results
+        nc_markers = [marker for _, _, marker, r in envs if id(r) in results_nc]
+
+        class DottedMarkers:
+            pass
+
+        class DottedMarkersHandler(HandlerBase):
+            def create_artists(self, legend, orig, xdescent, ydescent, width, height, fontsize, trans):
+                y = height / 2 - ydescent
+                line = Line2D([-xdescent, width - xdescent], [y, y], color=INK_3, linestyle=":",
+                              linewidth=1.4, transform=trans)
+                n = len(nc_markers)
+                dots = [Line2D([-xdescent + width * (i + 1) / (n + 1)], [y], color=INK_3, marker=m,
+                               markersize=4, markerfacecolor="none", linestyle="none", transform=trans)
+                        for i, m in enumerate(nc_markers)]
+                return [line, *dots]
+
+        other_handles.append(DottedMarkers())
+        other_labels.append("reference without caching")
+        handler_map[DottedMarkers] = DottedMarkersHandler()
+    common = dict(frameon=False, fontsize=fs, loc="upper right", borderpad=0, borderaxespad=0,
+                  handletextpad=LABEL_GAP_PT / fs)
+    right = fig.legend(other_handles, other_labels, handler_map=handler_map,
+                       handlelength=LINE_HANDLE_PT / fs, ncol=len(other_handles),
+                       bbox_to_anchor=(0.995, 0.993), **common)
+    # place the interpreters left of it: lay the figure out, then measure the right legend
+    fig.canvas.draw()
+    x0 = fig.transFigure.inverted().transform(
+        right.get_window_extent(fig.canvas.get_renderer()))[0][0]
+    fig.legend(interp_handles, interp_labels, handlelength=MARKER_PT / fs, ncol=len(interp_handles),
+               bbox_to_anchor=(x0 - GROUP_GAP_PT / 72 / fig.get_figwidth(), 0.993), **common)
     fig.savefig(path, dpi=150)
     print(f"wrote {path}")
     pdf = os.path.splitext(path)[0] + ".pdf"   # vector copy, for papers and slides
@@ -215,6 +267,8 @@ def main():
                    help="results files written by run.py (default: every bench/out/*/results.json)")
     p.add_argument("-o", "--output", default=os.path.join(OUT, "benchmark.png"),
                    help="image to write, plus a .pdf next to it (default bench/out/benchmark.png)")
+    p.add_argument("--no-caching-comparison", action="store_true",
+                   help="leave out the references built without caching (bench/out/caching/)")
     args = p.parse_args()
     paths = args.results or sorted(glob.glob(os.path.join(OUT, "*", "results.json")))
     if not paths:
@@ -224,7 +278,16 @@ def main():
         with open(path) as f:
             all_results.append(json.load(f))
     all_results.sort(key=lambda r: ORDER.get(r.get("interpreter"), len(ORDER)))
-    plot(all_results, args.output)
+    # the references built without caching (bench/caching.py), per interpreter
+    results_nc = {}
+    if not args.no_caching_comparison:
+        for r in all_results:
+            path = os.path.join(OUT, "caching", r.get("interpreter", ""), "no_cache", "results.json")
+            if os.path.exists(path):
+                with open(path) as f:
+                    results_nc[id(r)] = json.load(f)
+                print(f"without caching: {path}")
+    plot(all_results, args.output, results_nc)
 
 
 if __name__ == "__main__":

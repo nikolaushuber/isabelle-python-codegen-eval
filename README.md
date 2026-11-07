@@ -13,15 +13,17 @@ established Python libraries using Hypothesis.
 ## Usage
 
 ```bash
-make build       # isabelle build -c -D .: regenerate */generated/ for every data structure
+make build       # isabelle build -c -D . -o python_tail_calls=true: regenerate */generated/
 make test        # run all tests (CPython, .venv)
 make test-pypy   # the same under PyPy (.venv-pypy, created on first use)
 ```
 
-Without make: `isabelle build -c -D .` and `uv run pytest -v`.
+Without make: `isabelle build -c -D . -o python_tail_calls=true` and `uv run pytest -v`.
+`python_tail_calls` prints self tail calls as loops, so deep recursion in the generated code
+stays under Python's recursion limit.
 
 `-c` forces a rebuild, so the generated code is rewritten even when the
-session is up to date. To rebuild a single one: `isabelle build -d . -c Splay_Harness`.
+session is up to date. To rebuild a single one: `isabelle build -d . -c -o python_tail_calls=true Splay_Harness`.
 
 | Folder | Isabelle source | Compared against |
 |---|---|---|
@@ -102,6 +104,37 @@ make calls                                 # function calls, also as LaTeX (call
 calls for both sides: Python-level calls, calls into C, and objects built from HOL datatypes
 (dataclass `__init__`). Results go to `bench/out/cpython/calls.json`; `--latex` (on by default with `make calls`)
 also writes them as a booktabs tabular to `calls.tex`.
+
+### Impact of caching
+
+`bench/caching.py` (`make bench-caching`) measures the code generator's `python_cache` option,
+which memoises values and instances without dictionary arguments with `@functools.cache` (on by
+default). It builds every harness twice, with `isabelle build -c -D . -o python_cache=false|true
+-o python_tail_calls=true`, and runs `bench/run.py` on each copy of the generated code
+(`--generated`). `python_tail_calls` is on in both builds: printing self tail calls as loops is
+not an optimisation but what keeps deep recursion under Python's recursion limit, so it is part
+of the translation being measured, not a variable. The builds take about a minute each and leave
+`*/generated/` as it was.
+
+The speedup is the median time without caching divided by the median time with it, with a 95 %
+bootstrap interval over the timed runs. In `bench/out/caching/<interpreter>/`:
+
+- `caching.png` (and `.pdf`): the speedup per benchmark at its largest size
+- `caching-sizes.png` (and `.pdf`): median time with and without caching against size
+- `summary.md`: times and speedups at the largest size, then at every size
+- `caching.tex`: the largest sizes as a booktabs tabular, for `\input` into a paper
+
+```bash
+make bench-caching                         # build both, benchmark under CPython, report
+make bench-caching-pypy                    # the same builds under PyPy (after bench-caching)
+make bench-caching CACHING_ARGS="--quick --only smith"
+uv run python bench/caching.py report      # redraw from the existing results
+```
+
+`bench/plot.py` also draws the `no_cache` reference of each interpreter it finds there into the
+main benchmark graph, as a grey dotted line with that interpreter's marker
+(`--no-caching-comparison` leaves it out). Only the `no_cache` variant is needed for that, e.g. under
+PyPy: `UV_PROJECT_ENVIRONMENT=.venv-pypy uv run --python pypy@3.11 --no-dev python bench/caching.py run --variants no_cache`.
 
 Both environments share `uv.lock`; PyPy (3.11) is why `requires-python` is `>=3.11`, and its
 environment leaves out the dev group (matplotlib), so plotting always runs under CPython. SymPy and
