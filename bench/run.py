@@ -101,7 +101,7 @@ def make_heap_input(n, rng):
 
 def heap_ref(gen):
     def run(xs):
-        t = gen.h_empty
+        t = gen.h_empty()
         for x in xs:
             t = gen.h_insert(x, t)
         out = []
@@ -170,10 +170,10 @@ def benchmarks():
     quick_dims = [1, 2, 3, 4, 5]
     return [
         Bench("splay_tree", "keys", elems, quick_elems, make_map_input,
-              map_ref(splay.m_empty, splay.m_update, splay.m_lookup, splay.m_delete, splay.m_items),
+              map_ref(splay.m_empty(), splay.m_update, splay.m_lookup, splay.m_delete, splay.m_items),
               map_lib, "SortedDict"),
         Bench("rbt_map", "keys", elems, quick_elems, make_map_input,
-              map_ref(rbt.r_empty, rbt.r_update, rbt.r_lookup, rbt.r_delete, rbt.r_items),
+              map_ref(rbt.r_empty(), rbt.r_update, rbt.r_lookup, rbt.r_delete, rbt.r_items),
               map_lib, "SortedDict"),
         Bench("leftist_heap", "elements", elems, quick_elems, make_heap_input,
               heap_ref(lheap), heap_lib, "heapq"),

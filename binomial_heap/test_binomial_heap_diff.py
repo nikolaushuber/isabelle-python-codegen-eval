@@ -39,7 +39,7 @@ PROFILE = settings(
 
 
 def build(xs):
-    t = gen.h_empty
+    t = gen.h_empty()
     for x in xs:
         t = gen.h_insert(x, t)
     return t
@@ -62,7 +62,7 @@ def expected_ranks(n):
 class BinomialHeapVsHeapq(RuleBasedStateMachine):
     def __init__(self):
         super().__init__()
-        self.sut = gen.h_empty
+        self.sut = gen.h_empty()
         self.hq = []
         self.ref = []                     # sorted list
         self.history = []                 # (sut version, snapshot of model)
@@ -121,7 +121,7 @@ TestBinomialHeapVsHeapq.settings = PROFILE
 
 
 def test_empty():
-    t = gen.h_empty
+    t = gen.h_empty()
     assert gen.h_elems(t) == []
     assert gen.h_ranks(t) == []
     assert gen.h_get_min(t) is None
@@ -135,9 +135,9 @@ def test_partial_ops_on_empty_raise():
     assert gen.h_get_min_partial(t) == 1
     assert drain(gen.h_del_min_partial(t)) == [2, 3]
     with pytest.raises(RuntimeError, match="match failed"):
-        gen.h_get_min_partial(gen.h_empty)
+        gen.h_get_min_partial(gen.h_empty())
     with pytest.raises(RuntimeError, match="match failed"):
-        gen.h_del_min_partial(gen.h_empty)
+        gen.h_del_min_partial(gen.h_empty())
 
 
 def test_duplicates_and_persistence():

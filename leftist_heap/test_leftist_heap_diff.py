@@ -38,7 +38,7 @@ PROFILE = settings(
 
 
 def build(xs):
-    t = gen.h_empty
+    t = gen.h_empty()
     for x in xs:
         t = gen.h_insert(x, t)
     return t
@@ -56,7 +56,7 @@ def drain(t):
 class LeftistHeapVsHeapq(RuleBasedStateMachine):
     def __init__(self):
         super().__init__()
-        self.sut = gen.h_empty
+        self.sut = gen.h_empty()
         self.hq = []
         self.ref = []                     # sorted list
         self.history = []                 # (sut version, snapshot of model)
@@ -111,7 +111,7 @@ TestLeftistHeapVsHeapq.settings = PROFILE
 
 
 def test_empty():
-    t = gen.h_empty
+    t = gen.h_empty()
     assert gen.h_elems(t) == []
     assert gen.h_get_min(t) is None
     assert gen.h_elems(gen.h_del_min(t)) == []
@@ -122,7 +122,7 @@ def test_partial_get_min_on_empty_raises():
     """Leftist_Heap.get_min has no equation for Leaf; the backend falls through to a failed match."""
     assert gen.h_get_min_partial(build([3, 1, 2])) == 1
     with pytest.raises(RuntimeError, match="match failed"):
-        gen.h_get_min_partial(gen.h_empty)
+        gen.h_get_min_partial(gen.h_empty())
 
 
 def test_duplicates_and_persistence():

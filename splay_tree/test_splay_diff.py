@@ -38,7 +38,7 @@ PROFILE = settings(
 class SplayVsSortedDict(RuleBasedStateMachine):
     def __init__(self):
         super().__init__()
-        self.sut = gen.m_empty
+        self.sut = gen.m_empty()
         self.sd = SortedDict()
         self.ref = {}
         self.history = []  # (sut version, snapshot of model items)
@@ -100,14 +100,14 @@ TestSplayVsSortedDict.settings = PROFILE
 
 
 def test_empty():
-    t = gen.m_empty
+    t = gen.m_empty()
     assert gen.m_items(t) == []
     assert gen.m_lookup(t, 0) is None
     assert gen.m_items(gen.m_delete(0, t)) == []
 
 
 def test_overwrite_and_delete_roundtrip():
-    t = gen.m_update(2, 20, gen.m_update(1, 11, gen.m_update(1, 10, gen.m_empty)))
+    t = gen.m_update(2, 20, gen.m_update(1, 11, gen.m_update(1, 10, gen.m_empty())))
     assert gen.m_items(t) == [(1, 11), (2, 20)]
     assert gen.m_items(gen.m_delete(1, gen.m_delete(1, t))) == [(2, 20)]
     assert gen.m_items(t) == [(1, 11), (2, 20)]  # persistence
@@ -115,7 +115,7 @@ def test_overwrite_and_delete_roundtrip():
 
 @pytest.mark.parametrize("k", [0, -1, 2**31, -(2**31), 2**63, -(2**63), 2**64, 2**100, -(2**100)])
 def test_integer_boundaries(k):
-    t = gen.m_update(k + 1, 1, gen.m_update(k, k, gen.m_empty))
+    t = gen.m_update(k + 1, 1, gen.m_update(k, k, gen.m_empty()))
     assert gen.m_lookup(t, k) == k
     assert gen.m_lookup(t, k + 1) == 1
     assert gen.m_items(t) == [(k, k), (k + 1, 1)]
@@ -132,7 +132,7 @@ def test_degenerate_spine(order):
     sys.setrecursionlimit(int(os.environ.get("SPLAY_RECURSION_LIMIT", "1000")))
     keys = range(n) if order == "ascending" else range(n - 1, -1, -1)
     try:
-        t = gen.m_empty
+        t = gen.m_empty()
         for k in keys:
             t = gen.m_update(k, -k, t)
         far = 0 if order == "ascending" else n - 1

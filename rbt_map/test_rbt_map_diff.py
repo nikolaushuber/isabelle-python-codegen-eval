@@ -44,7 +44,7 @@ def height_bound(n):
 class RBTVsSortedDict(RuleBasedStateMachine):
     def __init__(self):
         super().__init__()
-        self.sut = gen.r_empty
+        self.sut = gen.r_empty()
         self.sd = SortedDict()
         self.ref = {}
         self.history = []  # (sut version, snapshot of model items)
@@ -111,7 +111,7 @@ TestRBTVsSortedDict.settings = PROFILE
 
 
 def test_empty():
-    t = gen.r_empty
+    t = gen.r_empty()
     assert gen.r_items(t) == []
     assert gen.r_lookup(t, 0) is None
     assert gen.r_items(gen.r_delete(0, t)) == []
@@ -120,7 +120,7 @@ def test_empty():
 
 
 def test_overwrite_and_delete_roundtrip():
-    t = gen.r_update(2, 20, gen.r_update(1, 11, gen.r_update(1, 10, gen.r_empty)))
+    t = gen.r_update(2, 20, gen.r_update(1, 11, gen.r_update(1, 10, gen.r_empty())))
     assert gen.r_items(t) == [(1, 11), (2, 20)]
     assert gen.r_items(gen.r_delete(1, gen.r_delete(1, t))) == [(2, 20)]
     assert gen.r_items(t) == [(1, 11), (2, 20)]  # persistence
@@ -128,7 +128,7 @@ def test_overwrite_and_delete_roundtrip():
 
 @pytest.mark.parametrize("k", [0, -1, 2**31, -(2**31), 2**63, -(2**63), 2**64, 2**100, -(2**100)])
 def test_integer_boundaries(k):
-    t = gen.r_update(k + 1, 1, gen.r_update(k, k, gen.r_empty))
+    t = gen.r_update(k + 1, 1, gen.r_update(k, k, gen.r_empty()))
     assert gen.r_lookup(t, k) == k
     assert gen.r_lookup(t, k + 1) == 1
     assert gen.r_items(t) == [(k, k), (k + 1, 1)]
@@ -142,7 +142,7 @@ def test_large_sequential(order):
     """
     n = int(os.environ.get("RBT_LARGE_N", "3000"))
     keys = range(n) if order == "ascending" else range(n - 1, -1, -1)
-    t = gen.r_empty
+    t = gen.r_empty()
     for k in keys:
         t = gen.r_update(k, -k, t)
     assert gen.r_height(t) <= height_bound(n)
@@ -164,7 +164,7 @@ def test_large_items(order):
     n = int(os.environ.get("RBT_LARGE_N", "3000"))
     sys.setrecursionlimit(int(os.environ.get("RBT_RECURSION_LIMIT", "1000")))
     keys = range(n) if order == "ascending" else range(n - 1, -1, -1)
-    t = gen.r_empty
+    t = gen.r_empty()
     for k in keys:
         t = gen.r_update(k, -k, t)
     try:
