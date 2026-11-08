@@ -113,31 +113,32 @@ default). It builds every harness once per variant, with `isabelle build -c -D .
 -o python_tail_calls=true` and the variant's options, and runs `bench/run.py` on each copy of the
 generated code (`--generated`):
 
-| variant | `python_cache` | `python_cache_dict_instances` |
-|---|---|---|
-| `no_cache` | false | false |
-| `cache` (the default) | true | false |
-| `cache_dict` (experimental) | true | true |
+| variant | `python_cache` |
+|---|---|
+| `no_cache` | false |
+| `cache` (the default) | true |
 
-`python_cache_dict_instances` also caches instances with dictionary arguments, such as
-`equal_prod(a_dict, b_dict)`. `python_tail_calls` is on in both builds: printing self tail calls as loops is
+`python_tail_calls` is on in both builds: printing self tail calls as loops is
 not an optimisation but what keeps deep recursion under Python's recursion limit, so it is part
 of the translation being measured, not a variable. The builds take about a minute each and leave
 `*/generated/` as it was.
 
-The speedup of each cached variant is the median time of `no_cache` divided by its own, with a 95 %
+The speedup of `cache` is the median time of `no_cache` divided by its own, with a 95 %
 bootstrap interval over the timed runs. In `bench/out/caching/<interpreter>/`:
 
-- `caching.png` (and `.pdf`): the speedup per benchmark at its largest size
-- `caching-sizes.png` (and `.pdf`): median time with and without caching against size
+- `<variant>/results.json`: the benchmark results of each variant
 - `summary.md`: times and speedups at the largest size, then at every size
 - `caching.tex`: the largest sizes as a booktabs tabular, for `\input` into a paper
+
+There are no separate caching plots: `make plot` draws the reference built without caching
+(`no_cache`) into the main benchmark plot, as a grey dotted line, for every interpreter with
+caching results.
 
 ```bash
 make bench-caching                         # build both, benchmark under CPython, report
 make bench-caching-pypy                    # the same builds under PyPy (after bench-caching)
 make bench-caching CACHING_ARGS="--quick --only smith"
-uv run python bench/caching.py report      # redraw from the existing results
+uv run python bench/caching.py report      # rewrite the tables from the existing results
 ```
 
 `bench/plot.py` also draws the `no_cache` reference of each interpreter it finds there into the

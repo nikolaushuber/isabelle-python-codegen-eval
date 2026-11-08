@@ -55,15 +55,14 @@ calls:
 	$(CPYTHON_RUN) python bench/calls.py --latex $(CALLS_ARGS)
 
 # impact of python_cache: build each harness with and without it (both with python_tail_calls,
-# 2 builds), benchmark both, compare: bench/out/caching/<interpreter>/summary.md, caching.png.
-# */generated/ is left as it was.
+# 2 builds), benchmark both, compare: bench/out/caching/<interpreter>/summary.md, caching.tex.
+# `make plot` adds the no_cache reference to the main plot. */generated/ is left as it was.
 bench-caching:
 	$(CPYTHON_RUN) python bench/caching.py build run report -- $(CACHING_ARGS)
 
-# the same under PyPy (after bench-caching, which builds both); the plots are drawn by CPython
+# the same under PyPy (after bench-caching, which builds both)
 bench-caching-pypy: pypy-env
-	$(PYPY_RUN) python bench/caching.py run -- $(CACHING_ARGS)
-	$(CPYTHON_RUN) python bench/caching.py report
+	$(PYPY_RUN) python bench/caching.py run report -- $(CACHING_ARGS)
 
 clean-bench:
 	rm -rf bench/out/cpython bench/out/pypy bench/out/caching bench/out/benchmark.png bench/out/benchmark.pdf
