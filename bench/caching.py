@@ -1,20 +1,25 @@
 """
-Benchmark the impact of caching in the generated code: every harness is exported twice, with and
-without `python_cache`, and bench/run.py is run against both.
+Benchmark the impact of caching in the generated code: every harness is exported once per caching
+variant, and bench/run.py is run against each.
 
 `python_cache` (on by default in the code generator) memoises values and instances without
-dictionary arguments with @functools.cache. `python_tail_calls`, which prints self tail calls as
-loops, is on in both builds: it is not an optimisation but what keeps deep recursion under
-Python's recursion limit, so it is part of the translation being measured, not a variable.
+dictionary arguments with @functools.cache; `python_cache_dict_instances` (experimental, off by
+default) also memoises instances with dictionary arguments, e.g. `equal_prod(a_dict, b_dict)`.
+`python_tail_calls`, which prints self tail calls as loops, is on in every build: it is not an
+optimisation but what keeps deep recursion under Python's recursion limit, so it is part of the
+translation being measured, not a variable.
 
-| variant    | python_cache | python_tail_calls |
-|------------|--------------|-------------------|
-| `no_cache` | false        | true              |
-| `cache`    | true         | true              |
+| variant      | python_cache | python_cache_dict_instances |
+|--------------|--------------|-----------------------------|
+| `no_cache`   | false        | false                       |
+| `cache`      | true         | false                       |  (the code generator's default)
+| `cache_dict` | true         | true                        |
+
+Every speedup is against `no_cache`.
 
 Steps (default: all three):
 
-    uv run python bench/caching.py build     # 2 Isabelle builds, ~1 min each
+    uv run python bench/caching.py build     # one Isabelle build per variant, ~1 min each
     uv run python bench/caching.py run       # bench/run.py per variant, under this interpreter
     uv run python bench/caching.py report    # tables and plots from the results
 
@@ -25,7 +30,7 @@ Output:
     bench/out/caching/<interpreter>/summary.md        speedup with 95 % intervals, every size
     bench/out/caching/<interpreter>/caching.tex       the speedups as a booktabs tabular
     bench/out/caching/<interpreter>/caching.png       speedup per benchmark at its largest size
-    bench/out/caching/<interpreter>/caching-sizes.png median time of both variants against size
+    bench/out/caching/<interpreter>/caching-sizes.png median time of every variant against size
                                                       (both plots also as .pdf; need matplotlib)
 
 `build` leaves */generated/ as it found it. Arguments after `--` go to bench/run.py, e.g.
@@ -53,8 +58,14 @@ INTERPRETER = platform.python_implementation().lower()
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import plot as benchplot  # noqa: E402
 
-# variant -> python_cache; python_tail_calls is on in both
-VARIANTS = {"no_cache": False, "cache": True}
+# variant -> its options besides python_tail_calls=true; `no_cache` is the baseline
+VARIANTS = {
+    "no_cache": {"python_cache": False},
+    "cache": {"python_cache": True},
+    "cache_dict": {"python_cache": True, "python_cache_dict_instances": True},
+}
+BASELINE = "no_cache"
+LABELS = {"no_cache": "no cache", "cache": "cache", "cache_dict": "cache + dict instances"}
 BOOTSTRAP = 2000
 
 
@@ -77,9 +88,9 @@ def build(variants):
             shutil.copytree(src, os.path.join(saved, d))
     try:
         for v in variants:
-            cache = "true" if VARIANTS[v] else "false"
-            cmd = [isabelle, "build", "-c", "-D", ".",
-                   "-o", f"python_cache={cache}", "-o", "python_tail_calls=true"]
+            cmd = [isabelle, "build", "-c", "-D", ".", "-o", "python_tail_calls=true"]
+            for name, value in VARIANTS[v].items():
+                cmd += ["-o", f"{name}={'true' if value else 'false'}"]
             print(f"== build {v}: {' '.join(cmd)}", flush=True)
             subprocess.run(cmd, cwd=ROOT, check=True)
             dest = os.path.join(GENERATED, v)
@@ -139,18 +150,24 @@ def speedup_ci(without, with_, rng):
 
 
 def comparisons(results):
-    """Per benchmark, per size both variants completed: times and speedup with its interval."""
+    """
+    Per benchmark, per size every variant completed: each variant's median time, and the speedup
+    of each cached variant against BASELINE with its interval.
+    """
     rng = random.Random(0)
+    cached = [v for v in results if v != BASELINE]
     out = []
-    for name, nc in results["no_cache"].items():
-        if name not in results["cache"]:
+    for name, base in results[BASELINE].items():
+        if any(name not in results[v] for v in cached):
             continue
-        a, b = reference_ok(nc), reference_ok(results["cache"][name])
-        rows = [{"size": s, "no_cache": a[s]["seconds"], "cache": b[s]["seconds"],
-                 "speedup": speedup_ci(a[s]["times"], b[s]["times"], rng)}
-                for s in sorted(set(a) & set(b))]
+        ok = {v: reference_ok(results[v][name]) for v in results}
+        sizes = sorted(set.intersection(*(set(o) for o in ok.values())))
+        rows = [{"size": s, "seconds": {v: ok[v][s]["seconds"] for v in results},
+                 "speedup": {v: speedup_ci(ok[BASELINE][s]["times"], ok[v][s]["times"], rng)
+                             for v in cached}}
+                for s in sizes]
         if rows:
-            out.append({"name": name, "label": nc["label"], "rows": rows})
+            out.append({"name": name, "label": base["label"], "rows": rows})
     return out
 
 
@@ -171,56 +188,67 @@ def size_text(size, label):
     return f"{size}×{size}" if label.startswith("n (") else f"{size:,} {label}"
 
 
-def summary(comps):
+def summary(comps, variants):
+    cached = [v for v in variants if v != BASELINE]
+    head = ("| " + " | ".join(f"{LABELS[v]} (ms)" for v in variants) + " | "
+            + " | ".join(f"{LABELS[v]} speedup" for v in cached) + " |")
+    rule = "|---:" * (len(variants) + len(cached)) + "|"
+
+    def cells(r):
+        return (" | ".join(fmt_ms(r["seconds"][v]) for v in variants) + " | "
+                + " | ".join(f"{fmt_x(r['speedup'][v][0])} {fmt_ci(*r['speedup'][v][1:])}"
+                             for v in cached) + " |")
+
     lines = [
-        "Speedup of the verified references from `python_cache`: median time without caching "
-        "divided by median time with it, both built with `python_tail_calls`. In brackets: 95 % "
-        f"bootstrap interval ({BOOTSTRAP} resamples of the 15 timed runs). The interval only "
-        "covers the scatter within one measurement, not drift between the two runs.",
+        "Speedup of the verified references from caching: median time of `no_cache` divided by "
+        "the variant's median time, all built with `python_tail_calls`. Variants: "
+        + ", ".join(f"`{v}` ({', '.join(f'{k}={str(x).lower()}' for k, x in VARIANTS[v].items())})"
+                    for v in variants)
+        + f". In brackets: 95 % bootstrap interval ({BOOTSTRAP} resamples of the 15 timed runs). "
+        "The interval only covers the scatter within one measurement, not drift between the runs.",
         "",
         "## At the largest size",
         "",
-        "| benchmark | size | without (ms) | with (ms) | speedup |",
-        "|---|---|---:|---:|---:|",
+        "| benchmark | size " + head,
+        "|---|---" + rule,
     ]
     for c in comps:
         r = c["rows"][-1]
-        x, lo, hi = r["speedup"]
-        lines.append(f"| {c['name']} | {size_text(r['size'], c['label'])} | {fmt_ms(r['no_cache'])} | "
-                     f"{fmt_ms(r['cache'])} | {fmt_x(x)} {fmt_ci(lo, hi)} |")
+        lines.append(f"| {c['name']} | {size_text(r['size'], c['label'])} | " + cells(r))
     lines += ["", "## Every size", ""]
     for c in comps:
-        lines += [f"### {c['name']}", "", f"| {c['label']} | without (ms) | with (ms) | speedup |",
-                  "|---:|---:|---:|---:|"]
+        lines += [f"### {c['name']}", "", f"| {c['label']} " + head, "|---:" + rule]
         for r in c["rows"]:
-            x, lo, hi = r["speedup"]
-            lines.append(f"| {r['size']} | {fmt_ms(r['no_cache'])} | {fmt_ms(r['cache'])} | "
-                         f"{fmt_x(x)} {fmt_ci(lo, hi)} |")
+            lines.append(f"| {r['size']} | " + cells(r))
         lines.append("")
     return "\n".join(lines)
 
 
-def latex_table(comps):
+def latex_table(comps, variants):
     """The largest sizes as a booktabs tabular, without a table environment (as bench/calls.py)."""
     def num(s):
         return s.replace(",", "{,}")
-    lines = [r"\begin{tabular}{@{}lrrrr@{}}",
+    cached = [v for v in variants if v != BASELINE]
+    nv, nc = len(variants), len(cached)
+    lines = [r"\begin{tabular}{@{}ll" + "r" * (nv + nc) + "@{}}",
              r"  \toprule",
-             r"  & & \multicolumn{2}{c}{Time (ms)} & \\",
-             r"  \cmidrule(lr){3-4}",
-             r"  Benchmark & Size & no cache & cache & Speedup \\",
+             f"  & & \\multicolumn{{{nv}}}{{c}}{{Time (ms)}} & \\multicolumn{{{nc}}}{{c}}{{Speedup}} \\\\",
+             f"  \\cmidrule(lr){{3-{2 + nv}}}\\cmidrule(lr){{{3 + nv}-{2 + nv + nc}}}",
+             "  Benchmark & Size & " + " & ".join(LABELS[v] for v in variants + cached) + r" \\",
              r"  \midrule"]
     for c in comps:
         r = c["rows"][-1]
         n = r["size"]
         size = f"${n}\\times{n}$" if c["label"].startswith("n (") else num(f"{n:,}")
-        x, lo, hi = r["speedup"]
         # no backslashes inside the f-string expressions: PyPy is Python 3.11
         name = c["name"].replace("_", r"\_")
-        speedup = num(fmt_x(x)).replace("x", r"$\times$")
-        ci = fmt_ci(lo, hi).replace(", ", ",~")
-        lines.append(f"  {name} & {size} & {num(fmt_ms(r['no_cache']))} & "
-                     f"{num(fmt_ms(r['cache']))} & {speedup} {{\\scriptsize {ci}}} \\\\")
+        times = " & ".join(num(fmt_ms(r["seconds"][v])) for v in variants)
+        ups = []
+        for v in cached:
+            x, lo, hi = r["speedup"][v]
+            ci = fmt_ci(lo, hi).replace(", ", ",~")
+            ups.append(num(fmt_x(x)).replace("x", r"$\times$") + r" {\scriptsize " + ci + "}")
+        lines.append(f"  {name} & {size} & {times} & " + " & ".join(ups) + r" \\")
     lines += [r"  \bottomrule", r"\end{tabular}"]
     return "\n".join(lines) + "\n"
 
@@ -244,19 +272,28 @@ def save(fig, path):
     print(f"wrote {path} (and .pdf)")
 
 
-def plot_speedups(comps, title, path):
-    """One row per benchmark: the speedup at its largest size, with its interval, on a log axis."""
+# cached variant -> colour, marker in the speedup plot; and line style, colour, marker fill against size
+SPEEDUP_STYLE = {"cache": (benchplot.ENV_COLORS[0], "o"), "cache_dict": (benchplot.ENV_COLORS[2], "D")}
+
+
+def plot_speedups(comps, variants, title, path):
+    """One row per benchmark: each cached variant's speedup at the largest size, with its interval."""
     plt = setup_matplotlib()
     from matplotlib.ticker import FuncFormatter
-    fig, ax = plt.subplots(figsize=(7.5, 0.5 * len(comps) + 1.4), layout="constrained")
-    color = benchplot.ENV_COLORS[0]
-    for y, c in enumerate(comps):
-        x, lo, hi = c["rows"][-1]["speedup"]
-        ax.errorbar([x], [y], xerr=[[x - lo], [hi - x]], fmt="o", color=color, markersize=6,
-                    elinewidth=1.4, capsize=3, zorder=3)
-        ax.annotate(fmt_x(x), (hi, y), textcoords="offset points", xytext=(7, 0), va="center",
-                    fontsize=8.5, color=benchplot.INK)
-    values = [v for c in comps for v in c["rows"][-1]["speedup"]] + [1]
+    cached = [v for v in variants if v != BASELINE]
+    fig, ax = plt.subplots(figsize=(7.5, 0.55 * len(comps) * max(1, len(cached) / 1.5) + 1.4),
+                           layout="constrained")
+    offsets = [0.0] if len(cached) == 1 else [-0.15 + 0.3 * i / (len(cached) - 1) for i in range(len(cached))]
+    for v, dy in zip(cached, offsets):
+        color, marker = SPEEDUP_STYLE[v]
+        for y, c in enumerate(comps):
+            x, lo, hi = c["rows"][-1]["speedup"][v]
+            ax.errorbar([x], [y + dy], xerr=[[x - lo], [hi - x]], fmt=marker, color=color,
+                        markersize=5, elinewidth=1.4, capsize=2.5, zorder=3,
+                        label=LABELS[v] if y == 0 else None)
+            ax.annotate(fmt_x(x), (hi, y + dy), textcoords="offset points", xytext=(6, 0),
+                        va="center", fontsize=8, color=benchplot.INK)
+    values = [x for c in comps for v in cached for x in c["rows"][-1]["speedup"][v]] + [1]
     ax.axvline(1, color=benchplot.INK_2, linewidth=1)
     ax.set_xscale("log")
     ax.set_xlim(min(values) / 1.3, max(values) * 3)
@@ -273,35 +310,43 @@ def plot_speedups(comps, title, path):
                     fontsize=7.5, annotation_clip=False)
     ax.grid(axis="y", visible=False)
     ax.set_xlabel("time without caching / time with (log scale, 95 % interval)")
+    if len(cached) > 1:
+        ax.legend(frameon=False, fontsize=8, loc="lower right", bbox_to_anchor=(1, 1),
+                  ncol=len(cached), borderaxespad=0.2)
     ax.set_title(title, loc="left", fontsize=11, fontweight="bold")
     save(fig, path)
     plt.close(fig)
 
 
-# variant -> line style, marker fill
-VARIANT_STYLE = {"no_cache": ("--", "none"), "cache": ("-", None)}
+# variant -> line style, colour, marker, marker fill
+VARIANT_STYLE = {
+    "no_cache": ("--", benchplot.ENV_COLORS[0], "o", "none"),
+    "cache": ("-", benchplot.ENV_COLORS[0], "o", None),
+    "cache_dict": ("-.", benchplot.ENV_COLORS[2], "D", None),
+}
 
 
 def plot_sizes(results, title, path):
     """Median time of both variants against size, one panel per benchmark."""
     plt = setup_matplotlib()
     from matplotlib.lines import Line2D
-    names = [n for n in results["no_cache"] if n in results.get("cache", {})]
+    names = [n for n in results[BASELINE] if all(n in results[v] for v in results)]
     cols = 3
     nrows = (len(names) + cols - 1) // cols
     fig, axes = plt.subplots(nrows, cols, figsize=(12, 3.3 * nrows + 0.4), layout="constrained",
                              squeeze=False)
-    color = benchplot.ENV_COLORS[0]
     for ax, name in zip(axes.flat, names):
-        label = results["cache"][name]["label"]
+        label = results[BASELINE][name]["label"]
         matrix = label.startswith("n (")
-        for v, (style, fill) in VARIANT_STYLE.items():
+        for v, (style, color, marker, fill) in VARIANT_STYLE.items():
+            if v not in results:
+                continue
             b = results[v][name]
             ok, failed = benchplot.times(b, "reference")
             xs = sorted(x for x in ok if not (matrix and x < benchplot.MIN_MATRIX_N))
             ys = [ok[x] for x in xs]
-            ax.plot(xs, ys, color=color, linestyle=style, marker="o", markersize=4, linewidth=1.4,
-                    markerfacecolor=fill or color)
+            ax.plot(xs, ys, color=color, linestyle=style, marker=marker, markersize=4,
+                    linewidth=1.4, markerfacecolor=fill or color)
             band = benchplot.spread(b, "reference")
             bx = [x for x in xs if x in band]
             if bx:
@@ -317,10 +362,10 @@ def plot_sizes(results, title, path):
         ax.set_ylabel("median time (s)")
     for ax in list(axes.flat)[len(names):]:
         ax.set_visible(False)
-    handles = [Line2D([], [], color=color, linestyle=s, marker="o", markersize=4,
-                      markerfacecolor=f or color, label=v.replace("_", " "))
-               for v, (s, f) in VARIANT_STYLE.items()]
-    fig.legend(handles=handles, loc="outside upper right", ncols=2, frameon=False, fontsize=8,
+    handles = [Line2D([], [], color=c, linestyle=s, marker=m, markersize=4,
+                      markerfacecolor=f or c, label=LABELS[v])
+               for v, (s, c, m, f) in VARIANT_STYLE.items() if v in results]
+    fig.legend(handles=handles, loc="outside upper right", ncols=len(handles), frameon=False, fontsize=8,
                title="band: interquartile range", title_fontsize=8)
     fig.suptitle(title, x=0.01, ha="left", fontsize=12, fontweight="bold")
     save(fig, path)
@@ -335,20 +380,21 @@ def report():
         if interp == "generated" or not os.path.isdir(d):
             continue
         results = load_results(d)
-        if set(results) != set(VARIANTS):
-            print(f"{d}: needs results for both {' and '.join(VARIANTS)}, skipped")
+        if BASELINE not in results or len(results) < 2:
+            print(f"{d}: needs results for {BASELINE} and at least one cached variant, skipped")
             continue
+        variants = list(results)   # in the order of VARIANTS
         comps = comparisons(results)
         md, tex = os.path.join(d, "summary.md"), os.path.join(d, "caching.tex")
         with open(md, "w") as f:
-            f.write(f"# Impact of caching: {interp}\n\n" + summary(comps))
+            f.write(f"# Impact of caching: {interp}\n\n" + summary(comps, variants))
         with open(tex, "w") as f:
-            f.write(latex_table(comps))
+            f.write(latex_table(comps, variants))
         print(f"wrote {md}, {tex}")
         try:
-            plot_speedups(comps, f"Speedup from caching ({interp}, largest size)",
+            plot_speedups(comps, variants, f"Speedup from caching ({interp}, largest size)",
                           os.path.join(d, "caching.png"))
-            plot_sizes(results, f"Verified references with and without caching ({interp})",
+            plot_sizes(results, f"Verified references per caching variant ({interp})",
                        os.path.join(d, "caching-sizes.png"))
         except ImportError:
             print("  matplotlib not installed (PyPy environment?): no plots; "
@@ -364,7 +410,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("steps", nargs="*", help="build, run and/or report (default: all three)")
     p.add_argument("--variants", nargs="+", choices=list(VARIANTS), default=list(VARIANTS),
-                   help="variants to build or run (default: both)")
+                   help="variants to build or run (default: all)")
     args = p.parse_args(argv)
     steps = args.steps or ["build", "run", "report"]
     if unknown := set(steps) - {"build", "run", "report"}:

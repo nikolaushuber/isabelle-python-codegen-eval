@@ -109,14 +109,23 @@ also writes them as a booktabs tabular to `calls.tex`.
 
 `bench/caching.py` (`make bench-caching`) measures the code generator's `python_cache` option,
 which memoises values and instances without dictionary arguments with `@functools.cache` (on by
-default). It builds every harness twice, with `isabelle build -c -D . -o python_cache=false|true
--o python_tail_calls=true`, and runs `bench/run.py` on each copy of the generated code
-(`--generated`). `python_tail_calls` is on in both builds: printing self tail calls as loops is
+default). It builds every harness once per variant, with `isabelle build -c -D .
+-o python_tail_calls=true` and the variant's options, and runs `bench/run.py` on each copy of the
+generated code (`--generated`):
+
+| variant | `python_cache` | `python_cache_dict_instances` |
+|---|---|---|
+| `no_cache` | false | false |
+| `cache` (the default) | true | false |
+| `cache_dict` (experimental) | true | true |
+
+`python_cache_dict_instances` also caches instances with dictionary arguments, such as
+`equal_prod(a_dict, b_dict)`. `python_tail_calls` is on in both builds: printing self tail calls as loops is
 not an optimisation but what keeps deep recursion under Python's recursion limit, so it is part
 of the translation being measured, not a variable. The builds take about a minute each and leave
 `*/generated/` as it was.
 
-The speedup is the median time without caching divided by the median time with it, with a 95 %
+The speedup of each cached variant is the median time of `no_cache` divided by its own, with a 95 %
 bootstrap interval over the timed runs. In `bench/out/caching/<interpreter>/`:
 
 - `caching.png` (and `.pdf`): the speedup per benchmark at its largest size
