@@ -3,19 +3,17 @@ Benchmark the impact of caching in the generated code: every harness is exported
 variant, and bench/run.py is run against each.
 
 `python_cache` (on by default in the code generator) memoises values and instances without
-dictionary arguments with @functools.cache; `python_cache_dict_instances` (experimental, off by
-default) also memoises instances with dictionary arguments, e.g. `equal_prod(a_dict, b_dict)`.
+dictionary arguments with @functools.cache.
 `python_tail_calls`, which prints self tail calls as loops, is on in every build: it is not an
 optimisation but what keeps deep recursion under Python's recursion limit, so it is part of the
 translation being measured, not a variable.
 
-| variant      | python_cache | python_cache_dict_instances |
-|--------------|--------------|-----------------------------|
-| `no_cache`   | false        | false                       |
-| `cache`      | true         | false                       |  (the code generator's default)
-| `cache_dict` | true         | true                        |
+| variant      | python_cache |
+|--------------|--------------|
+| `no_cache`   | false        |
+| `cache`      | true         |  (the code generator's default)
 
-Every speedup is against `no_cache`.
+The speedup is against `no_cache`.
 
 Steps (default: all three):
 
@@ -29,9 +27,9 @@ Output:
     bench/out/caching/<interpreter>/<variant>/results.json
     bench/out/caching/<interpreter>/summary.md        speedup with 95 % intervals, every size
     bench/out/caching/<interpreter>/caching.tex       the speedups as a booktabs tabular
-    bench/out/caching/<interpreter>/caching.png       speedup per benchmark at its largest size
-    bench/out/caching/<interpreter>/caching-sizes.png median time of every variant against size
-                                                      (both plots also as .pdf; need matplotlib)
+
+There are no separate plots: bench/plot.py draws the `no_cache` reference of every interpreter
+into the main benchmark plot.
 
 `build` leaves */generated/ as it found it. Arguments after `--` go to bench/run.py, e.g.
 `bench/caching.py run -- --quick --only smith`. Under PyPy, build once with CPython and then
@@ -53,19 +51,13 @@ OUT = os.path.join(ROOT, "bench", "out", "caching")
 GENERATED = os.path.join(OUT, "generated")
 INTERPRETER = platform.python_implementation().lower()
 
-# palette and helpers shared with the main benchmark plot (bench/plot.py imports matplotlib only
-# inside its plot function, so this works under PyPy too)
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import plot as benchplot  # noqa: E402
-
 # variant -> its options besides python_tail_calls=true; `no_cache` is the baseline
 VARIANTS = {
     "no_cache": {"python_cache": False},
     "cache": {"python_cache": True},
-    "cache_dict": {"python_cache": True, "python_cache_dict_instances": True},
 }
 BASELINE = "no_cache"
-LABELS = {"no_cache": "no cache", "cache": "cache", "cache_dict": "cache + dict instances"}
+LABELS = {"no_cache": "no cache", "cache": "cache"}
 BOOTSTRAP = 2000
 
 
@@ -253,125 +245,6 @@ def latex_table(comps, variants):
     return "\n".join(lines) + "\n"
 
 
-def setup_matplotlib():
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    plt.rcParams.update({
-        "font.size": 9, "axes.edgecolor": benchplot.GRID, "axes.labelcolor": benchplot.INK_2,
-        "text.color": benchplot.INK, "xtick.color": benchplot.INK_2, "ytick.color": benchplot.INK_2,
-        "axes.facecolor": benchplot.SURFACE, "figure.facecolor": benchplot.SURFACE,
-        "axes.grid": True, "grid.color": benchplot.GRID, "grid.linewidth": 0.6,
-    })
-    return plt
-
-
-def save(fig, path):
-    fig.savefig(path, dpi=150)
-    fig.savefig(os.path.splitext(path)[0] + ".pdf")
-    print(f"wrote {path} (and .pdf)")
-
-
-# cached variant -> colour, marker in the speedup plot; and line style, colour, marker fill against size
-SPEEDUP_STYLE = {"cache": (benchplot.ENV_COLORS[0], "o"), "cache_dict": (benchplot.ENV_COLORS[2], "D")}
-
-
-def plot_speedups(comps, variants, title, path):
-    """One row per benchmark: each cached variant's speedup at the largest size, with its interval."""
-    plt = setup_matplotlib()
-    from matplotlib.ticker import FuncFormatter
-    cached = [v for v in variants if v != BASELINE]
-    fig, ax = plt.subplots(figsize=(7.5, 0.55 * len(comps) * max(1, len(cached) / 1.5) + 1.4),
-                           layout="constrained")
-    offsets = [0.0] if len(cached) == 1 else [-0.15 + 0.3 * i / (len(cached) - 1) for i in range(len(cached))]
-    for v, dy in zip(cached, offsets):
-        color, marker = SPEEDUP_STYLE[v]
-        for y, c in enumerate(comps):
-            x, lo, hi = c["rows"][-1]["speedup"][v]
-            ax.errorbar([x], [y + dy], xerr=[[x - lo], [hi - x]], fmt=marker, color=color,
-                        markersize=5, elinewidth=1.4, capsize=2.5, zorder=3,
-                        label=LABELS[v] if y == 0 else None)
-            ax.annotate(fmt_x(x), (hi, y + dy), textcoords="offset points", xytext=(6, 0),
-                        va="center", fontsize=8, color=benchplot.INK)
-    values = [x for c in comps for v in cached for x in c["rows"][-1]["speedup"][v]] + [1]
-    ax.axvline(1, color=benchplot.INK_2, linewidth=1)
-    ax.set_xscale("log")
-    ax.set_xlim(min(values) / 1.3, max(values) * 3)
-    ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}x"))
-    ax.set_yticks(range(len(comps)), [c["name"] for c in comps])
-    ax.set_ylim(len(comps) - 0.5, -0.5)
-    ax.tick_params(axis="y", length=0)
-    for tick in ax.get_yticklabels():
-        tick.set_va("bottom")
-    for y, c in enumerate(comps):   # the size each row was measured at, under its label
-        ax.annotate(benchplot.size_label(c["rows"][-1]["size"], c["label"]), (0, y),
-                    xycoords=("axes fraction", "data"), textcoords="offset points",
-                    xytext=(-3.5, -1), ha="right", va="top", color=benchplot.INK_3,
-                    fontsize=7.5, annotation_clip=False)
-    ax.grid(axis="y", visible=False)
-    ax.set_xlabel("time without caching / time with (log scale, 95 % interval)")
-    if len(cached) > 1:
-        ax.legend(frameon=False, fontsize=8, loc="lower right", bbox_to_anchor=(1, 1),
-                  ncol=len(cached), borderaxespad=0.2)
-    ax.set_title(title, loc="left", fontsize=11, fontweight="bold")
-    save(fig, path)
-    plt.close(fig)
-
-
-# variant -> line style, colour, marker, marker fill
-VARIANT_STYLE = {
-    "no_cache": ("--", benchplot.ENV_COLORS[0], "o", "none"),
-    "cache": ("-", benchplot.ENV_COLORS[0], "o", None),
-    "cache_dict": ("-.", benchplot.ENV_COLORS[2], "D", None),
-}
-
-
-def plot_sizes(results, title, path):
-    """Median time of both variants against size, one panel per benchmark."""
-    plt = setup_matplotlib()
-    from matplotlib.lines import Line2D
-    names = [n for n in results[BASELINE] if all(n in results[v] for v in results)]
-    cols = 3
-    nrows = (len(names) + cols - 1) // cols
-    fig, axes = plt.subplots(nrows, cols, figsize=(12, 3.3 * nrows + 0.4), layout="constrained",
-                             squeeze=False)
-    for ax, name in zip(axes.flat, names):
-        label = results[BASELINE][name]["label"]
-        matrix = label.startswith("n (")
-        for v, (style, color, marker, fill) in VARIANT_STYLE.items():
-            if v not in results:
-                continue
-            b = results[v][name]
-            ok, failed = benchplot.times(b, "reference")
-            xs = sorted(x for x in ok if not (matrix and x < benchplot.MIN_MATRIX_N))
-            ys = [ok[x] for x in xs]
-            ax.plot(xs, ys, color=color, linestyle=style, marker=marker, markersize=4,
-                    linewidth=1.4, markerfacecolor=fill or color)
-            band = benchplot.spread(b, "reference")
-            bx = [x for x in xs if x in band]
-            if bx:
-                ax.fill_between(bx, [band[x][0] for x in bx], [band[x][1] for x in bx],
-                                color=color, alpha=0.15, linewidth=0)
-            for r in failed:
-                ax.plot([r["size"]], [ys[-1] if ys else 1e-3], marker="x", markersize=8,
-                        markeredgewidth=2, color=color)
-        ax.set_xscale("linear" if matrix else "log")
-        ax.set_yscale("log")
-        ax.set_title(name, loc="left", fontsize=10, fontweight="bold")
-        ax.set_xlabel(label)
-        ax.set_ylabel("median time (s)")
-    for ax in list(axes.flat)[len(names):]:
-        ax.set_visible(False)
-    handles = [Line2D([], [], color=c, linestyle=s, marker=m, markersize=4,
-                      markerfacecolor=f or c, label=LABELS[v])
-               for v, (s, c, m, f) in VARIANT_STYLE.items() if v in results]
-    fig.legend(handles=handles, loc="outside upper right", ncols=len(handles), frameon=False, fontsize=8,
-               title="band: interquartile range", title_fontsize=8)
-    fig.suptitle(title, x=0.01, ha="left", fontsize=12, fontweight="bold")
-    save(fig, path)
-    plt.close(fig)
-
-
 def report():
     if not os.path.isdir(OUT):
         sys.exit(f"{OUT} missing: run `bench/caching.py run` first")
@@ -391,14 +264,6 @@ def report():
         with open(tex, "w") as f:
             f.write(latex_table(comps, variants))
         print(f"wrote {md}, {tex}")
-        try:
-            plot_speedups(comps, variants, f"Speedup from caching ({interp}, largest size)",
-                          os.path.join(d, "caching.png"))
-            plot_sizes(results, f"Verified references per caching variant ({interp})",
-                       os.path.join(d, "caching-sizes.png"))
-        except ImportError:
-            print("  matplotlib not installed (PyPy environment?): no plots; "
-                  "run `bench/caching.py report` with CPython")
 
 
 def main():
