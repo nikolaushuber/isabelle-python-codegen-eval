@@ -154,3 +154,7 @@ The generated code runs with the interpreter's default recursion limit, so a fai
 deep recursion over a long list) shows up as a cross in the plot, and larger sizes are skipped.
 PyPy counts recursion depth differently: the three tests that xfail on CPython because of the limit
 pass under PyPy.
+
+## License
+
+BSD-3-Clause, see `LICENSE`.
