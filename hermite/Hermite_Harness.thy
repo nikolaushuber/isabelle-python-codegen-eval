@@ -17,14 +17,10 @@ definition hnf_rows :: "int list list \<Rightarrow> int list list" where
      (Hermite_of_iarrays (IArray (map IArray xss)) ass_function_euclidean res_function_euclidean
         euclid_ext2))"
 
-definition echelon_rows :: "int list list \<Rightarrow> int list list" where
-  "echelon_rows xss = map IArray.list_of (IArray.list_of
-     (echelon_form_of_iarrays (IArray (map IArray xss)) euclid_ext2))"
-
 text \<open>Example from the AFP entry, evaluated by Isabelle's own code generator (SML).\<close>
 value "hnf_rows [[37,8,6],[5,4,-8],[3,24,-7]]"
 
-export_code hnf_rows echelon_rows
+export_code hnf_rows
   in Python module_name Hermite_Ref
   file "./generated"
 

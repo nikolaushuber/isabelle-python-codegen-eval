@@ -6,15 +6,13 @@ theory Leftist_Heap_Harness
 begin
 
 text \<open>
-  Golden reference for differential testing of the Python code generator backend.
-  Source: HOL-Data_Structures theory Leftist_Heap (min-heap with @{typ nat} ranks), elements
+  Exported from HOL-Data_Structures theory Leftist_Heap (min-heap with @{typ nat} ranks), elements
   instantiated to @{typ int}. Monomorphic wrappers keep the generated interface simple.
 \<close>
 
 text \<open>
-  Native encoding of @{typ "int option"} for this harness only: @{const None} becomes Python
-  @{text None} and @{term "Some x"} becomes @{text x}. Sound here because the exported code only
-  constructs options and never matches on them, and @{typ int} has no @{text None} value.
+  @{typ "int option"} as Python @{text None} or the plain value. Sound here: the exported code
+  never matches on options, and @{typ int} has no @{text None}.
 \<close>
 code_printing
     type_constructor option \<rightharpoonup> (Python) "_ option"
@@ -47,7 +45,7 @@ definition h_elems :: "int lheap \<Rightarrow> int list" where
 definition h_invar :: "int lheap \<Rightarrow> bool" where
   "h_invar t = (heap t \<and> ltree t)"
 
-text \<open>Smoke checks evaluated by Isabelle's own code generator (SML), independent of the Python backend.\<close>
+text \<open>Smoke checks, evaluated in SML.\<close>
 
 lemma "h_get_min (h_insert 2 (h_insert 1 (h_insert 3 h_empty))) = Some 1"
   by eval

@@ -1,18 +1,9 @@
 """
-Differential tests: Isabelle-generated binomial heap  vs  heapq.
-
-Three-way comparison so a disagreement can be attributed:
-  generated binomial heap (system under test)
-  heapq                   (standard library module under comparison)
-  sorted list             (trivially correct model; also checks heapq itself)
-
-Also checks persistence: older versions of the immutable heap must be unchanged
-by later inserts/deletes (heapq works in place, so snapshots are taken in the model),
-the forest shape (a heap of n elements has one tree per set bit of n, with that bit's
-rank), and the binomial tree, heap and rank-order invariants (h_invar) on small heaps.
+Differential tests of the generated binomial heap against heapq, with a sorted list as the model
+both are checked against. Also checks persistence, the forest shape (one tree per set bit of n,
+with that bit's rank) and, on small heaps, the invariants (h_invar).
 """
 import heapq
-import importlib
 import os
 import sys
 
@@ -20,9 +11,8 @@ import pytest
 from hypothesis import HealthCheck, settings, strategies as st
 from hypothesis.stateful import RuleBasedStateMachine, invariant, rule
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.environ.get("BHEAP_GEN_PATH", os.path.join(HERE, "generated")))
-gen = importlib.import_module(os.environ.get("BHEAP_GEN_MODULE", "Binomial_Heap_Ref"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "generated"))
+import Binomial_Heap_Ref as gen  # noqa: E402
 
 SMALL = st.integers(-25, 25)              # few distinct values -> many duplicates
 WIDE = st.integers(-(2**70), 2**70)       # beyond 64-bit
@@ -154,14 +144,13 @@ def test_integer_boundaries(x):
 
 
 @pytest.mark.parametrize("order", ["ascending", "descending"])
-def test_large(order):
+def test_large(order, recursion_limit):
     """
-    Every recursion in the generated code runs over a forest or a child list, whose length
-    is bounded by the largest rank, O(log n). So unlike leftist_heap, no insertion order
-    should reach the interpreter recursion limit.
+    Every recursion runs over a forest or a child list, bounded by the largest rank, O(log n),
+    so no insertion order reaches the recursion limit.
     """
     n = int(os.environ.get("BHEAP_LARGE_N", "3000"))
-    sys.setrecursionlimit(int(os.environ.get("BHEAP_RECURSION_LIMIT", "1000")))
+    recursion_limit(int(os.environ.get("BHEAP_RECURSION_LIMIT", "1000")))
     xs = list(range(n)) if order == "ascending" else list(range(n - 1, -1, -1))
     t = build(xs)
     assert gen.h_ranks(t) == expected_ranks(n)

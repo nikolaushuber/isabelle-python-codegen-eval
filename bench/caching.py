@@ -1,35 +1,19 @@
 """
-Benchmark the impact of caching in the generated code: every harness is exported once per caching
-variant, and bench/run.py is run against each.
-
-`python_cache` (on by default in the code generator) memoises values and instances without
-dictionary arguments with @functools.cache.
-`python_tail_calls`, which prints self tail calls as loops, is on in every build: it is not an
-optimisation but what keeps deep recursion under Python's recursion limit, so it is part of the
-translation being measured, not a variable.
-
-| variant      | python_cache |
-|--------------|--------------|
-| `no_cache`   | false        |
-| `cache`      | true         |  (the code generator's default)
-
-The speedup is against `no_cache`.
-
-Steps (default: all three):
+Benchmark the code generator's `python_cache` option, which memoises values and instances without
+dictionary arguments with @functools.cache (on by default). Every harness is built twice, without
+(`no_cache`) and with (`cache`) the option, both with python_tail_calls=true, and bench/run.py is
+run against each build.
 
     uv run python bench/caching.py build     # one Isabelle build per variant, ~1 min each
     uv run python bench/caching.py run       # bench/run.py per variant, under this interpreter
-    uv run python bench/caching.py report    # tables and plots from the results
+    uv run python bench/caching.py report    # summary.md and caching.tex from the results
 
-Output:
+With no step given, all three run. Output:
 
     bench/out/caching/generated/<variant>/<folder>/   generated code of each variant
     bench/out/caching/<interpreter>/<variant>/results.json
-    bench/out/caching/<interpreter>/summary.md        speedup with 95 % intervals, every size
-    bench/out/caching/<interpreter>/caching.tex       the speedups as a booktabs tabular
-
-There are no separate plots: bench/plot.py draws the `no_cache` reference of every interpreter
-into the main benchmark plot.
+    bench/out/caching/<interpreter>/summary.md        speedups with 95 % intervals, every size
+    bench/out/caching/<interpreter>/caching.tex       the largest sizes as a booktabs tabular
 
 `build` leaves */generated/ as it found it. Arguments after `--` go to bench/run.py, e.g.
 `bench/caching.py run -- --quick --only smith`. Under PyPy, build once with CPython and then
@@ -38,7 +22,6 @@ into the main benchmark plot.
 import argparse
 import json
 import os
-import platform
 import random
 import shutil
 import statistics
@@ -46,18 +29,12 @@ import subprocess
 import sys
 import tempfile
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUT = os.path.join(ROOT, "bench", "out", "caching")
-GENERATED = os.path.join(OUT, "generated")
-INTERPRETER = platform.python_implementation().lower()
+from common import INTERPRETER, ROOT, is_matrix
+from common import OUT as BENCH_OUT
 
-# variant -> its options besides python_tail_calls=true; `no_cache` is the baseline
-VARIANTS = {
-    "no_cache": {"python_cache": False},
-    "cache": {"python_cache": True},
-}
-BASELINE = "no_cache"
-LABELS = {"no_cache": "no cache", "cache": "cache"}
+OUT = os.path.join(BENCH_OUT, "caching")
+GENERATED = os.path.join(OUT, "generated")
+VARIANTS = {"no_cache": "false", "cache": "true"}   # variant -> value of python_cache
 BOOTSTRAP = 2000
 
 
@@ -66,8 +43,6 @@ def folders():
     with open(os.path.join(ROOT, "ROOTS")) as f:
         return [line.strip() for line in f if line.strip() and not line.startswith("#")]
 
-
-# ---- build ----
 
 def build(variants):
     isabelle = os.environ.get("ISABELLE", "isabelle")
@@ -80,9 +55,8 @@ def build(variants):
             shutil.copytree(src, os.path.join(saved, d))
     try:
         for v in variants:
-            cmd = [isabelle, "build", "-c", "-D", ".", "-o", "python_tail_calls=true"]
-            for name, value in VARIANTS[v].items():
-                cmd += ["-o", f"{name}={'true' if value else 'false'}"]
+            cmd = [isabelle, "build", "-c", "-D", ".", "-o", "python_tail_calls=true",
+                   "-o", f"python_cache={VARIANTS[v]}"]
             print(f"== build {v}: {' '.join(cmd)}", flush=True)
             subprocess.run(cmd, cwd=ROOT, check=True)
             dest = os.path.join(GENERATED, v)
@@ -98,8 +72,6 @@ def build(variants):
         shutil.rmtree(saved, ignore_errors=True)
 
 
-# ---- run ----
-
 def run(variants, run_args):
     for v in variants:
         gen = os.path.join(GENERATED, v)
@@ -111,8 +83,6 @@ def run(variants, run_args):
         # one process per variant: the variants' modules share their names
         subprocess.run(cmd, cwd=ROOT, check=True)
 
-
-# ---- report ----
 
 def load_results(interp_dir):
     """variant -> {benchmark name -> benchmark}, for the variants that have results."""
@@ -142,24 +112,19 @@ def speedup_ci(without, with_, rng):
 
 
 def comparisons(results):
-    """
-    Per benchmark, per size every variant completed: each variant's median time, and the speedup
-    of each cached variant against BASELINE with its interval.
-    """
+    """Per benchmark, per size both variants completed: both median times and the speedup."""
     rng = random.Random(0)
-    cached = [v for v in results if v != BASELINE]
     out = []
-    for name, base in results[BASELINE].items():
-        if any(name not in results[v] for v in cached):
+    for name, base in results["no_cache"].items():
+        if name not in results["cache"]:
             continue
-        ok = {v: reference_ok(results[v][name]) for v in results}
-        sizes = sorted(set.intersection(*(set(o) for o in ok.values())))
-        rows = [{"size": s, "seconds": {v: ok[v][s]["seconds"] for v in results},
-                 "speedup": {v: speedup_ci(ok[BASELINE][s]["times"], ok[v][s]["times"], rng)
-                             for v in cached}}
-                for s in sizes]
+        nc, c = reference_ok(base), reference_ok(results["cache"][name])
+        rows = [{"size": s, "no_cache": nc[s]["seconds"], "cache": c[s]["seconds"],
+                 "speedup": speedup_ci(nc[s]["times"], c[s]["times"], rng)}
+                for s in sorted(set(nc) & set(c))]
         if rows:
-            out.append({"name": name, "label": base["label"], "rows": rows})
+            out.append({"name": name, "label": base["label"], "matrix": is_matrix(base["label"]),
+                        "rows": rows})
     return out
 
 
@@ -176,71 +141,59 @@ def fmt_ci(lo, hi):
     return f"[{lo:.2f}, {hi:.2f}]" if hi < 100 else f"[{lo:,.0f}, {hi:,.0f}]"
 
 
-def size_text(size, label):
-    return f"{size}×{size}" if label.startswith("n (") else f"{size:,} {label}"
+HEAD = "| no cache (ms) | cache (ms) | speedup |"
+RULE = "|---:|---:|---:|"
 
 
-def summary(comps, variants):
-    cached = [v for v in variants if v != BASELINE]
-    head = ("| " + " | ".join(f"{LABELS[v]} (ms)" for v in variants) + " | "
-            + " | ".join(f"{LABELS[v]} speedup" for v in cached) + " |")
-    rule = "|---:" * (len(variants) + len(cached)) + "|"
+def cells(r):
+    x, lo, hi = r["speedup"]
+    return f"{fmt_ms(r['no_cache'])} | {fmt_ms(r['cache'])} | {fmt_x(x)} {fmt_ci(lo, hi)} |"
 
-    def cells(r):
-        return (" | ".join(fmt_ms(r["seconds"][v]) for v in variants) + " | "
-                + " | ".join(f"{fmt_x(r['speedup'][v][0])} {fmt_ci(*r['speedup'][v][1:])}"
-                             for v in cached) + " |")
 
+def summary(comps):
     lines = [
-        "Speedup of the verified references from caching: median time of `no_cache` divided by "
-        "the variant's median time, all built with `python_tail_calls`. Variants: "
-        + ", ".join(f"`{v}` ({', '.join(f'{k}={str(x).lower()}' for k, x in VARIANTS[v].items())})"
-                    for v in variants)
-        + f". In brackets: 95 % bootstrap interval ({BOOTSTRAP} resamples of the 15 timed runs). "
-        "The interval only covers the scatter within one measurement, not drift between the runs.",
+        "Speedup of the verified references from `python_cache`: median time of `no_cache` divided "
+        f"by that of `cache`. In brackets: 95 % bootstrap interval ({BOOTSTRAP} resamples of the "
+        "timed runs), which covers the scatter within one measurement, not drift between runs.",
         "",
         "## At the largest size",
         "",
-        "| benchmark | size " + head,
-        "|---|---" + rule,
+        "| benchmark | size " + HEAD,
+        "|---|---" + RULE,
     ]
     for c in comps:
         r = c["rows"][-1]
-        lines.append(f"| {c['name']} | {size_text(r['size'], c['label'])} | " + cells(r))
+        size = f"{r['size']}×{r['size']}" if c["matrix"] else f"{r['size']:,} {c['label']}"
+        lines.append(f"| {c['name']} | {size} | " + cells(r))
     lines += ["", "## Every size", ""]
     for c in comps:
-        lines += [f"### {c['name']}", "", f"| {c['label']} " + head, "|---:" + rule]
-        for r in c["rows"]:
-            lines.append(f"| {r['size']} | " + cells(r))
+        lines += [f"### {c['name']}", "", f"| {c['label']} " + HEAD, "|---:" + RULE]
+        lines += [f"| {r['size']} | " + cells(r) for r in c["rows"]]
         lines.append("")
     return "\n".join(lines)
 
 
-def latex_table(comps, variants):
-    """The largest sizes as a booktabs tabular, without a table environment (as bench/calls.py)."""
+def latex_table(comps):
+    """The largest sizes as a booktabs tabular, without a table environment (like bench/calls.py)."""
     def num(s):
         return s.replace(",", "{,}")
-    cached = [v for v in variants if v != BASELINE]
-    nv, nc = len(variants), len(cached)
-    lines = [r"\begin{tabular}{@{}ll" + "r" * (nv + nc) + "@{}}",
+    lines = [r"\begin{tabular}{@{}llrrr@{}}",
              r"  \toprule",
-             f"  & & \\multicolumn{{{nv}}}{{c}}{{Time (ms)}} & \\multicolumn{{{nc}}}{{c}}{{Speedup}} \\\\",
-             f"  \\cmidrule(lr){{3-{2 + nv}}}\\cmidrule(lr){{{3 + nv}-{2 + nv + nc}}}",
-             "  Benchmark & Size & " + " & ".join(LABELS[v] for v in variants + cached) + r" \\",
+             r"  & & \multicolumn{2}{c}{Time (ms)} & \\",
+             r"  \cmidrule(lr){3-4}",
+             r"  Benchmark & Size & no cache & cache & Speedup \\",
              r"  \midrule"]
     for c in comps:
         r = c["rows"][-1]
         n = r["size"]
-        size = f"${n}\\times{n}$" if c["label"].startswith("n (") else num(f"{n:,}")
-        # no backslashes inside the f-string expressions: PyPy is Python 3.11
+        size = f"${n}\\times{n}$" if c["matrix"] else num(f"{n:,}")
+        # backslashes stay out of f-string expressions: PyPy is Python 3.11
         name = c["name"].replace("_", r"\_")
-        times = " & ".join(num(fmt_ms(r["seconds"][v])) for v in variants)
-        ups = []
-        for v in cached:
-            x, lo, hi = r["speedup"][v]
-            ci = fmt_ci(lo, hi).replace(", ", ",~")
-            ups.append(num(fmt_x(x)).replace("x", r"$\times$") + r" {\scriptsize " + ci + "}")
-        lines.append(f"  {name} & {size} & {times} & " + " & ".join(ups) + r" \\")
+        x, lo, hi = r["speedup"]
+        speedup = (num(fmt_x(x)).replace("x", r"$\times$")
+                   + r" {\scriptsize " + fmt_ci(lo, hi).replace(", ", ",~") + "}")
+        lines.append(f"  {name} & {size} & {num(fmt_ms(r['no_cache']))} & "
+                     f"{num(fmt_ms(r['cache']))} & {speedup} \\\\")
     lines += [r"  \bottomrule", r"\end{tabular}"]
     return "\n".join(lines) + "\n"
 
@@ -253,16 +206,15 @@ def report():
         if interp == "generated" or not os.path.isdir(d):
             continue
         results = load_results(d)
-        if BASELINE not in results or len(results) < 2:
-            print(f"{d}: needs results for {BASELINE} and at least one cached variant, skipped")
+        if len(results) < len(VARIANTS):
+            print(f"{d}: needs results for both variants, skipped")
             continue
-        variants = list(results)   # in the order of VARIANTS
         comps = comparisons(results)
         md, tex = os.path.join(d, "summary.md"), os.path.join(d, "caching.tex")
         with open(md, "w") as f:
-            f.write(f"# Impact of caching: {interp}\n\n" + summary(comps, variants))
+            f.write(f"# Impact of caching: {interp}\n\n" + summary(comps))
         with open(tex, "w") as f:
-            f.write(latex_table(comps, variants))
+            f.write(latex_table(comps))
         print(f"wrote {md}, {tex}")
 
 
@@ -275,7 +227,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("steps", nargs="*", help="build, run and/or report (default: all three)")
     p.add_argument("--variants", nargs="+", choices=list(VARIANTS), default=list(VARIANTS),
-                   help="variants to build or run (default: all)")
+                   help="variants to build or run (default: both)")
     args = p.parse_args(argv)
     steps = args.steps or ["build", "run", "report"]
     if unknown := set(steps) - {"build", "run", "report"}:

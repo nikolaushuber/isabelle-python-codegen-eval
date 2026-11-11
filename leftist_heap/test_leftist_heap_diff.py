@@ -1,17 +1,9 @@
 """
-Differential tests: Isabelle-generated leftist heap  vs  heapq.
-
-Three-way comparison so a disagreement can be attributed:
-  generated leftist heap (system under test)
-  heapq                  (standard library module under comparison)
-  sorted list            (trivially correct model; also checks heapq itself)
-
-Also checks persistence: older versions of the immutable heap must be unchanged
-by later inserts/deletes (heapq works in place, so snapshots are taken in the model),
-and the heap and leftist invariants (h_invar) on small heaps.
+Differential tests of the generated leftist heap against heapq, with a sorted list as the model
+both are checked against. Also checks persistence and, on small heaps, the heap and leftist
+invariants (h_invar).
 """
 import heapq
-import importlib
 import os
 import sys
 
@@ -19,9 +11,8 @@ import pytest
 from hypothesis import HealthCheck, settings, strategies as st
 from hypothesis.stateful import RuleBasedStateMachine, invariant, rule
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.environ.get("LHEAP_GEN_PATH", os.path.join(HERE, "generated")))
-gen = importlib.import_module(os.environ.get("LHEAP_GEN_MODULE", "Leftist_Heap_Ref"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "generated"))
+import Leftist_Heap_Ref as gen  # noqa: E402
 
 SMALL = st.integers(-25, 25)              # few distinct values -> many duplicates
 WIDE = st.integers(-(2**70), 2**70)       # beyond 64-bit
@@ -140,23 +131,21 @@ def test_integer_boundaries(x):
 
 @pytest.mark.parametrize("order", ["ascending", "descending"])
 def test_large_drain(order):
-    """Leftist heaps keep the right spine at O(log n), so draining a large heap should not recurse deeply."""
+    """The right spine stays O(log n), so draining a large heap does not recurse deeply."""
     n = int(os.environ.get("LHEAP_LARGE_N", "3000"))
     xs = list(range(n)) if order == "ascending" else list(range(n - 1, -1, -1))
     assert drain(build(xs)) == list(range(n))
 
 
 @pytest.mark.parametrize("order", ["ascending", "descending"])
-def test_large_elems(order):
+def test_large_elems(order, recursion_limit):
     """
-    h_elems is inorder, which concatenates with Python's native list `+`, so it recurses
-    as deep as the tree. Leftist heaps only bound the right spine: ascending inserts give
-    a shallow tree, but descending inserts build a left spine of depth n. Records whether
-    the generated Python hits the interpreter recursion limit (reported as xfail, not as
-    a mismatch).
+    h_elems (inorder) recurses as deep as the tree. Only the right spine is bounded, so
+    descending inserts build a left spine of depth n. Hitting the recursion limit is reported
+    as xfail.
     """
     n = int(os.environ.get("LHEAP_LARGE_N", "3000"))
-    sys.setrecursionlimit(int(os.environ.get("LHEAP_RECURSION_LIMIT", "1000")))
+    recursion_limit(int(os.environ.get("LHEAP_RECURSION_LIMIT", "1000")))
     xs = list(range(n)) if order == "ascending" else list(range(n - 1, -1, -1))
     t = build(xs)
     try:

@@ -19,8 +19,7 @@ PYPY_RUN = UV_PROJECT_ENVIRONMENT=.venv-pypy $(UV) run --python $(PYPY) --no-dev
 
 default: test
 
-# regenerate */generated/ for every harness listed in ROOTS. Self tail calls are printed as loops
-# (python_tail_calls), so deep recursion stays under Python's recursion limit.
+# regenerate */generated/ for every harness listed in ROOTS
 build:
 	$(ISABELLE) build -c -D . -o python_tail_calls=true
 
@@ -54,9 +53,8 @@ plot:
 calls:
 	$(CPYTHON_RUN) python bench/calls.py --latex $(CALLS_ARGS)
 
-# impact of python_cache: build each harness with and without it (both with python_tail_calls,
-# 2 builds), benchmark both, compare: bench/out/caching/<interpreter>/summary.md, caching.tex.
-# `make plot` adds the no_cache reference to the main plot. */generated/ is left as it was.
+# impact of python_cache: build each harness with and without it, benchmark both, and write
+# bench/out/caching/<interpreter>/summary.md and caching.tex
 bench-caching:
 	$(CPYTHON_RUN) python bench/caching.py build run report -- $(CACHING_ARGS)
 

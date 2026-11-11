@@ -1,7 +1,7 @@
 [project]
 name = "isabelle-python-eval"
 version = "0.1.0"
-description = "Add your description here"
+description = "Differential tests and benchmarks of Python code generated from Isabelle/HOL"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

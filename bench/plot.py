@@ -17,11 +17,10 @@ import glob
 import json
 import os
 
-OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bench", "out")
+from common import OUT, is_matrix
 
-# categorical slots 1, 2, 3 of the default palette (light theme), in fixed order per interpreter
+# colour and marker per interpreter, in a fixed order
 ENV_COLORS = ["#2a78d6", "#eb6834", "#1baf7a"]
-# and a marker per interpreter, so identity never rests on colour alone
 ENV_MARKERS = {"cpython": "o", "pypy": "s"}
 OTHER_MARKER = "D"
 INK, INK_2, INK_3, GRID, SURFACE = "#0b0b0b", "#52514e", "#8a8984", "#e4e3df", "#fcfcfb"
@@ -63,7 +62,7 @@ def ratio_label(v):
 
 def size_label(size, label):
     """The size a slowdown was measured at, e.g. '30k keys' or '8x8'."""
-    if label.startswith("n ("):
+    if is_matrix(label):
         return f"{size}x{size}"
     n = f"{size // 1000}k" if size >= 1000 and size % 1000 == 0 else f"{size:,}"
     return f"{n} {label}"
@@ -148,22 +147,22 @@ def plot(all_results, path, results_nc=None):
     for i, name in enumerate(names):
         ax = fig.add_subplot(grid[i // cols, i % cols])
         lib_name, label = None, None
-        for (env, color, marker, _r), benches in zip(envs, by_env):
+        for (env, color, marker, results), benches in zip(envs, by_env):
             b = benches.get(name)
             if b is None:
                 continue
             lib_name, label = b["lib_name"], b["label"]
             # the reference without caching (bench/caching.py), for comparison
-            nc = {b["name"]: b for b in results_nc.get(id(_r), {}).get("benchmarks", [])}.get(name)
+            nc = {b["name"]: b for b in results_nc.get(id(results), {}).get("benchmarks", [])}.get(name)
             if nc is not None:
                 ok, _ = times(nc, "reference")
-                matrix = nc["label"].startswith("n (")
+                matrix = is_matrix(nc["label"])
                 xs = sorted(x for x in ok if not (matrix and x < MIN_MATRIX_N))
                 ax.plot(xs, [ok[x] for x in xs], color=INK_3, linestyle=":", marker=marker,
                         markersize=4, linewidth=1.4, markerfacecolor="none", zorder=1)
             for side, style in SIDES:
                 ok, failed = times(b, side)
-                matrix = b["label"].startswith("n (")
+                matrix = is_matrix(b["label"])
                 xs = sorted(x for x in ok if not (matrix and x < MIN_MATRIX_N))
                 ys = [ok[x] for x in xs]
                 ax.plot(xs, ys, color=color, linestyle=style, marker=marker, markersize=4.5,
@@ -178,7 +177,7 @@ def plot(all_results, path, results_nc=None):
                     ax.plot([r["size"]], [y], marker="x", markersize=9, markeredgewidth=2, color=color)
                     ax.annotate(r["reason"], (r["size"], y), textcoords="offset points", xytext=(0, 8),
                                 ha="center", color=INK_2, fontsize=8)
-        ax.set_xscale("linear" if label and label.startswith("n (") else "log")
+        ax.set_xscale("linear" if label and is_matrix(label) else "log")
         ax.set_yscale("log")
         ax.set_title(name, loc="left", fontsize=10, fontweight="bold", color=INK)
         ax.set_xlabel(label or "")

@@ -1,15 +1,8 @@
 """
-Differential tests: Isabelle-generated splay-tree map  vs  sortedcontainers.SortedDict.
-
-Three-way comparison so a disagreement can be attributed:
-  generated splay map (system under test)
-  SortedDict          (PyPI library under comparison)
-  dict                (trivially correct model; also checks SortedDict itself)
-
-Also checks persistence: older versions of the immutable tree must be unchanged
-by later updates/deletes (SortedDict is mutable, so snapshots are taken in the model).
+Differential tests of the generated splay-tree map against sortedcontainers.SortedDict, with a
+plain dict as the model both are checked against. Earlier versions of the (immutable) tree must
+stay unchanged by later updates and deletes.
 """
-import importlib
 import os
 import sys
 
@@ -18,9 +11,8 @@ from hypothesis import HealthCheck, settings, strategies as st
 from hypothesis.stateful import RuleBasedStateMachine, invariant, rule
 from sortedcontainers import SortedDict
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.environ.get("SPLAY_GEN_PATH", os.path.join(HERE, "generated")))
-gen = importlib.import_module(os.environ.get("SPLAY_GEN_MODULE", "Splay_Ref"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "generated"))
+import Splay_Ref as gen  # noqa: E402
 
 SMALL = st.integers(-25, 25)              # few distinct keys -> many collisions / deletes of present keys
 WIDE = st.integers(-(2**70), 2**70)       # beyond 64-bit
@@ -122,14 +114,13 @@ def test_integer_boundaries(k):
 
 
 @pytest.mark.parametrize("order", ["ascending", "descending"])
-def test_degenerate_spine(order):
+def test_degenerate_spine(order, recursion_limit):
     """
-    Ascending (or descending) insertion makes a spine of depth N, and splaying the far
-    end recurses to depth ~N/2. Records whether the generated Python hits the
-    interpreter recursion limit (reported as xfail, not as a mismatch).
+    Sorted insertion makes a spine of depth n, and splaying the far end recurses about n/2 deep.
+    Hitting the recursion limit is reported as xfail.
     """
     n = int(os.environ.get("SPLAY_SPINE_N", "3000"))
-    sys.setrecursionlimit(int(os.environ.get("SPLAY_RECURSION_LIMIT", "1000")))
+    recursion_limit(int(os.environ.get("SPLAY_RECURSION_LIMIT", "1000")))
     keys = range(n) if order == "ascending" else range(n - 1, -1, -1)
     try:
         t = gen.m_empty()

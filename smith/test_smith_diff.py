@@ -11,10 +11,9 @@ Checked for SymPy:
   smith_normal_decomp                    returns (S, s, t) with S = s * A * t, det s, det t = +-1
 Checked for the reference itself (cheap, independent of SymPy): S = P * A * Q, det P, det Q = +-1.
 
-The reference takes about 0.1 s for a 5 x 5 matrix and 2 s for 8 x 8 (with array-backed matrices,
+The reference takes about 75 ms for a 5 x 5 matrix and 1.4 s for 8 x 8 (with array-backed matrices,
 see Smith_Harness.thy), so shapes go up to SNF_MAX_DIM = 5 by default.
 """
-import importlib
 import os
 import sys
 
@@ -22,13 +21,12 @@ from hypothesis import HealthCheck, given, settings, strategies as st
 from sympy import Matrix, ZZ
 from sympy.matrices.normalforms import invariant_factors, smith_normal_decomp, smith_normal_form
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.environ.get("SNF_GEN_PATH", os.path.join(HERE, "generated")))
-gen = importlib.import_module(os.environ.get("SNF_GEN_MODULE", "Smith_Ref"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "generated"))
+import Smith_Ref as gen  # noqa: E402
 
 MAX_DIM = int(os.environ.get("SNF_MAX_DIM", "5"))
 
-# The reference's transforms P and Q can reach thousands of digits on wide 6 x 6 inputs, and its
+# The reference's transforms P and Q can reach thousands of digits on wide inputs, and its
 # extended Euclidean algorithm (euclid_ext_aux) recurses once per division step. Hypothesis sets
 # its own recursion limit around each test body, so the limit is raised around the call itself.
 RECURSION_LIMIT = int(os.environ.get("SNF_RECURSION_LIMIT", "100000"))
@@ -62,8 +60,6 @@ def diagonal(m):
 def unimodular(m):
     return abs(Matrix(m).det()) == 1
 
-
-# ---- input generation ----
 
 SMALL = st.integers(-4, 4)
 WIDE = st.integers(-(2**40), 2**40)
@@ -126,8 +122,6 @@ SHAPES = st.tuples(st.integers(1, MAX_DIM), st.integers(1, MAX_DIM))
 MATRICES = SHAPES.flatmap(
     lambda sh: st.one_of(dense(sh), low_rank(sh), with_repeats(sh), diagonal_like(sh)))
 
-
-# ---- tests ----
 
 @PROFILE
 @given(MATRICES)

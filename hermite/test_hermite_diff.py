@@ -5,7 +5,7 @@ Here the direction is reversed compared to the data structure folders: the Isabe
 code (AFP entry Hermite, proven to compute the unique HNF) is the reference, and SymPy is the
 library under test.
 
-Conventions differ and are translated, not compared loosely:
+The two use different conventions, so the reference result is converted:
   AFP    row-style HNF  H = P * A: upper echelon, pivots > 0, entries above a pivot in [0, pivot)
   SymPy  column-style HNF W = A * U (Cohen, Algorithm 2.4.5): pivots in the rightmost columns,
          entries right of a pivot in [0, pivot), zero columns dropped
@@ -15,7 +15,6 @@ W = (rot180(hnf_rows(rot180(A^T))))^T without its leading zero columns.
 Covered: the default algorithm (any shape and rank), the modulo-D algorithm (Cohen 2.4.8, full
 row rank, D a multiple of det W), and check_rank=True, which must fall back for deficient rank.
 """
-import importlib
 import os
 import sys
 from math import prod
@@ -26,9 +25,8 @@ from sympy.matrices.normalforms import hermite_normal_form
 from sympy.polys.matrices import DomainMatrix
 from sympy.polys.matrices.normalforms import hermite_normal_form as dm_hermite_normal_form
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.environ.get("HNF_GEN_PATH", os.path.join(HERE, "generated")))
-gen = importlib.import_module(os.environ.get("HNF_GEN_MODULE", "Hermite_Ref"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "generated"))
+import Hermite_Ref as gen  # noqa: E402
 
 MAX_DIM = int(os.environ.get("HNF_MAX_DIM", "5"))
 
@@ -59,8 +57,6 @@ def reference_hnf(a):
 def to_lists(m):
     return [[int(x) for x in m.row(i)] for i in range(m.rows)] if m.cols else [[] for _ in range(m.rows)]
 
-
-# ---- input generation ----
 
 SMALL = st.integers(-4, 4)                     # many zeros and common factors
 WIDE = st.integers(-(2**40), 2**40)
@@ -109,8 +105,6 @@ def with_repeats(draw):
 
 MATRICES = st.one_of(dense(), low_rank(), with_repeats())
 
-
-# ---- tests ----
 
 @PROFILE
 @given(MATRICES)

@@ -6,8 +6,7 @@ theory Splay_Harness
 begin
 
 text \<open>
-  Golden reference for differential testing of the Python code generator backend.
-  Source: AFP entry Splay_Tree, theory Splay_Map (maps as splay trees, keys and values
+  Exported from AFP entry Splay_Tree, theory Splay_Map (maps as splay trees, keys and values
   instantiated to @{typ int}). Monomorphic wrappers avoid type-class dictionaries and the
   Python keyword clash on @{text del} in the generated interface.
 \<close>
@@ -21,9 +20,8 @@ declare Splay_Tree.splay_max_code [code]
 declare Splay_Map.splay_code [code]
 
 text \<open>
-  Native encoding of @{typ "int option"} for this harness only: @{const None} becomes Python
-  @{text None} and @{term "Some x"} becomes @{text x}. Sound here because the exported code only
-  constructs options and never matches on them, and @{typ int} has no @{text None} value.
+  @{typ "int option"} as Python @{text None} or the plain value. Sound here: the exported code
+  never matches on options, and @{typ int} has no @{text None}.
 \<close>
 code_printing
     type_constructor option \<rightharpoonup> (Python) "_ option"
@@ -45,7 +43,7 @@ definition m_delete :: "int \<Rightarrow> (int \<times> int) tree \<Rightarrow> 
 definition m_items :: "(int \<times> int) tree \<Rightarrow> (int \<times> int) list" where
   "m_items = Tree.inorder"
 
-text \<open>Smoke checks evaluated by Isabelle's own code generator (SML), independent of the Python backend.\<close>
+text \<open>Smoke checks, evaluated in SML.\<close>
 
 lemma "m_items (m_update 2 20 (m_update 1 10 (m_update 3 30 m_empty))) = [(1,10),(2,20),(3,30)]"
   by eval

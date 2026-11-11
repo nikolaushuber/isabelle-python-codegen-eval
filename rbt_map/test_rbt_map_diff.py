@@ -1,16 +1,8 @@
 """
-Differential tests: Isabelle-generated red-black tree map  vs  sortedcontainers.SortedDict.
-
-Three-way comparison so a disagreement can be attributed:
-  generated RBT map (system under test)
-  SortedDict        (PyPI library under comparison)
-  dict              (trivially correct model; also checks SortedDict itself)
-
-Also checks persistence (older versions of the immutable tree are unchanged by later
-updates/deletes), the red-black and sortedness invariants (r_invar), and that the
-height stays within the red-black bound 2*log2(n+1).
+Differential tests of the generated red-black tree map against sortedcontainers.SortedDict, with
+a plain dict as the model both are checked against. Also checks persistence, the red-black and
+sortedness invariants (r_invar), and the height bound 2*log2(n+1).
 """
-import importlib
 import math
 import os
 import sys
@@ -20,9 +12,8 @@ from hypothesis import HealthCheck, settings, strategies as st
 from hypothesis.stateful import RuleBasedStateMachine, invariant, rule
 from sortedcontainers import SortedDict
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.environ.get("RBT_GEN_PATH", os.path.join(HERE, "generated")))
-gen = importlib.import_module(os.environ.get("RBT_GEN_MODULE", "RBT_Map_Ref"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "generated"))
+import RBT_Map_Ref as gen  # noqa: E402
 
 SMALL = st.integers(-25, 25)              # few distinct keys -> many collisions / deletes of present keys
 WIDE = st.integers(-(2**70), 2**70)       # beyond 64-bit
@@ -136,10 +127,7 @@ def test_integer_boundaries(k):
 
 @pytest.mark.parametrize("order", ["ascending", "descending"])
 def test_large_sequential(order):
-    """
-    The case that defeats the splay tree: sequential insertion. A red-black tree stays
-    balanced, so update, lookup and delete recurse only O(log n) deep.
-    """
+    """Sequential insertion, which defeats the splay tree: the red-black tree stays balanced."""
     n = int(os.environ.get("RBT_LARGE_N", "3000"))
     keys = range(n) if order == "ascending" else range(n - 1, -1, -1)
     t = gen.r_empty()
@@ -154,20 +142,12 @@ def test_large_sequential(order):
 
 
 @pytest.mark.parametrize("order", ["ascending", "descending"])
-def test_large_items(order):
-    """
-    r_items is inorder, which concatenates with Python's native list `+`, so it only
-    recurses as deep as the tree, which stays O(log n) because the tree is balanced.
-    Records whether the generated Python hits the interpreter recursion limit
-    (reported as xfail, not as a mismatch).
-    """
+def test_large_items(order, recursion_limit):
+    """r_items (inorder) recurses as deep as the tree, which stays O(log n)."""
     n = int(os.environ.get("RBT_LARGE_N", "3000"))
-    sys.setrecursionlimit(int(os.environ.get("RBT_RECURSION_LIMIT", "1000")))
+    recursion_limit(int(os.environ.get("RBT_RECURSION_LIMIT", "1000")))
     keys = range(n) if order == "ascending" else range(n - 1, -1, -1)
     t = gen.r_empty()
     for k in keys:
         t = gen.r_update(k, -k, t)
-    try:
-        assert gen.r_items(t) == [(k, -k) for k in range(n)]
-    except RecursionError:
-        pytest.xfail(f"generated r_items exceeds recursion limit on {order} map of {n}")
+    assert gen.r_items(t) == [(k, -k) for k in range(n)]

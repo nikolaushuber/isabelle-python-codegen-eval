@@ -20,8 +20,8 @@ import os
 import random
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import run  # noqa: E402  (the workloads and generated modules of the benchmark)
+import run   # the workloads and generated modules of the benchmark
+from common import is_matrix
 
 
 def count(fn, arg):
@@ -75,7 +75,7 @@ def latex_table(benchmarks):
     for b in benchmarks:
         name = b["name"].replace("_", r"\_")
         n = b["size"]
-        size = f"${n}\\times{n}$" if b["label"].startswith("n (") else f"{n:,}".replace(",", "{,}")
+        size = f"${n}\\times{n}$" if is_matrix(b["label"]) else f"{n:,}".replace(",", "{,}")
         ref, lib = b["reference"], b["library"]
         lines.append(f"  {name} & {size} & {short(ref['total'])} & {short(ref['dataclass_inits'])} & "
                      f"{short(lib['total'])} & {b['ratio']:.0f}$\\times$ \\\\")
@@ -105,7 +105,7 @@ def main():
     for b in run.benchmarks():
         if args.only and b.name not in args.only:
             continue
-        n = args.matrix_n if b.label.startswith("n (") else args.elements
+        n = args.matrix_n if b.matrix else args.elements
         arg = b.make(n, random.Random(f"{args.seed}-{b.name}-{n}"))
         counts = {side: count(fn, arg) for side, fn in (("reference", b.ref), ("library", b.lib))}
         for side, c in counts.items():
